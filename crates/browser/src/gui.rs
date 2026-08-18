@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use euclid::{Point2D, Rect, Scale, Size2D};
 use servo::{DeviceIndependentPixel, DevicePixel, OffscreenRenderingContext, RenderingContext};
+use url::Url;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::Window;
@@ -84,8 +85,9 @@ impl Gui {
         });
     }
 
-    /// Build the frame: toolbar UI, then the WebView paint callback.
-    pub fn update(&mut self, window: &Window, state: &AppState) {
+    /// Build the frame: tab bar, toolbar UI, then the WebView paint
+    /// callback for the active tab.
+    pub fn update(&mut self, window: &Window, state: &Rc<AppState>) {
         let Gui {
             egui_ctx,
             egui_glow,
@@ -96,31 +98,35 @@ impl Gui {
         } = self;
 
         egui_glow.run(window, |ui| {
+            Self::tab_bar_ui(ui, state);
             Self::toolbar_ui(url, url_dirty, ui, state);
 
             let available_rect = ui.available_rect_before_wrap();
             *webview_rect = available_rect;
 
-            // Keep the WebView sized to the viewport below the toolbar.
+            // Keep every tab's WebView and the shared rendering
+            // surface sized to the viewport below the toolbar.
             let scale = Scale::<_, DeviceIndependentPixel, DevicePixel>::new(ui.pixels_per_point());
             let size = Size2D::new(available_rect.width(), available_rect.height()) * scale;
-            for webview in state.webviews.borrow().iter() {
-                if size != webview.size() {
+            let surface_size = winit::dpi::PhysicalSize::new(size.width as u32, size.height as u32);
+            for tab_webview in state.webviews.borrow().iter() {
+                if size != tab_webview.webview.size() {
                     log::debug!(
                         "WebView resize {}x{} -> {}x{}",
-                        webview.size().width,
-                        webview.size().height,
+                        tab_webview.webview.size().width,
+                        tab_webview.webview.size().height,
                         size.width,
                         size.height
                     );
-                    webview.resize(winit::dpi::PhysicalSize::new(
-                        size.width as u32,
-                        size.height as u32,
-                    ));
+                    tab_webview.webview.resize(surface_size);
                 }
             }
+            if surface_size != state.rendering_context.size() {
+                state.rendering_context.resize(surface_size);
+            }
 
-            // Servo renders into the offscreen framebuffer first…
+            // Servo renders the active tab into the shared offscreen
+            // framebuffer first…
             state.repaint_webviews();
 
             // …then the result is blitted into the egui scene.
@@ -161,7 +167,33 @@ impl Gui {
         self.rendering_context.parent_context().present();
     }
 
-    fn toolbar_ui(url: &mut String, url_dirty: &mut bool, ui: &mut egui::Ui, state: &AppState) {
+    /// The tab bar: one selectable chip per tab, plus a new-tab button.
+    fn tab_bar_ui(ui: &mut egui::Ui, state: &Rc<AppState>) {
+        egui::Panel::top("tabbar").show(ui, |ui| {
+            ui.add_space(2.0);
+            ui.horizontal(|ui| {
+                let active = state.active_tab_id();
+                for tab in state.tab_states() {
+                    let label = tab.title.clone().unwrap_or_else(|| {
+                        if tab.url.as_str() == "about:blank" {
+                            "New Tab".to_owned()
+                        } else {
+                            tab.url.to_string()
+                        }
+                    });
+                    if ui.selectable_label(active == Some(tab.id), label).clicked() {
+                        state.activate_tab(tab.id);
+                    }
+                }
+                if ui.button("+").clicked() {
+                    state.create_tab(Url::parse("about:blank").expect("static URL"));
+                }
+            });
+            ui.add_space(2.0);
+        });
+    }
+
+    fn toolbar_ui(url: &mut String, url_dirty: &mut bool, ui: &mut egui::Ui, state: &Rc<AppState>) {
         egui::Panel::top("toolbar").show(ui, |ui| {
             ui.add_space(2.0);
             ui.horizontal(|ui| {

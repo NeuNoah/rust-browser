@@ -6,16 +6,21 @@ for the interface.
 
 ## Status
 
-Phase 1 (foundation) and Phase 2 (session basics) are complete: the
-first window exists — a Servo `WebView` blitted into an egui scene,
-with a toolbar, URL bar, navigation buttons, mouse and keyboard
-interaction, tracker blocking at the request layer, and copy/paste via
-a system clipboard delegate. Not yet usable as a daily browser (no
-tabs, downloads or history yet).
+Phase 1 (foundation), Phase 2 (session basics) and Phase 3 (tabs) are
+complete: the first window exists — Servo `WebView`s blitted into an
+egui scene, with a tab bar, toolbar, URL bar, navigation buttons, mouse
+and keyboard interaction, tracker blocking at the request layer, and
+copy/paste via a system clipboard delegate. Not yet usable as a daily
+browser (no downloads or history yet).
 
 ## Features today
 
-- Single window, single tab, Servo engine (`servo` crate 0.5.0)
+- Multiple tabs with a tab bar; each tab is a Servo `WebView`
+  (all share one offscreen rendering context); closing the last tab
+  opens a fresh blank tab
+- Tab shortcuts: Ctrl+T (new tab), Ctrl+W (close), Ctrl+Tab /
+  Ctrl+Shift+Tab (cycle); back/forward state is tracked per tab
+- Crash resilience: a dead WebView closes its tab, the app survives
 - URL bar with HTTPS-first completion (`example.com` → `https://example.com/`)
 - Back / forward / reload, page title in the window title
 - Mouse input (move, click, wheel) and keyboard input to the page,
@@ -79,4 +84,4 @@ dependencies on the engine, so they build and test in seconds.
 
 ## License
 
-MPL-2.0, matching Servo. The license text is added in Phase 3.
+MPL-2.0, matching Servo. See [LICENSE](LICENSE).

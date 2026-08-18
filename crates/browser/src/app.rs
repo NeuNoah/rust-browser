@@ -7,6 +7,7 @@
 //! events; the main thread drains them on redraw.
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::str::FromStr;
 
@@ -23,7 +24,7 @@ use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalPosition;
 use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
-use winit::keyboard::{Key, ModifiersState, NamedKey};
+use winit::keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey};
 use winit::raw_window_handle::{HasDisplayHandle as _, HasWindowHandle as _};
 use winit::window::{CursorIcon, Window, WindowId};
 
@@ -40,6 +41,15 @@ pub enum AppEvent {
     Wake,
 }
 
+/// One Servo [`WebView`] owned by a browser tab. The order of this
+/// vector mirrors the tab order in the core's `TabManager`. All
+/// WebViews share the single offscreen rendering context (servoshell
+/// model).
+pub(crate) struct TabWebView {
+    pub(crate) tab: TabId,
+    pub(crate) webview: WebView,
+}
+
 /// The root of all browser state. See the module docs for the sharing
 /// model.
 pub struct AppState {
@@ -47,11 +57,14 @@ pub struct AppState {
     servo: Servo,
     window_rendering_context: Rc<WindowRenderingContext>,
     pub(crate) rendering_context: Rc<OffscreenRenderingContext>,
-    pub(crate) webviews: RefCell<Vec<WebView>>,
+    pub(crate) webviews: RefCell<Vec<TabWebView>>,
     gui: RefCell<Gui>,
     core: RefCell<BrowserCore>,
     pipeline: RequestPipeline,
     active_tab: Cell<Option<TabId>>,
+    /// Per-tab history availability, reported by the engine; keyed by
+    /// tab so the toolbar reflects the active tab's history.
+    tab_history: RefCell<HashMap<TabId, (bool, bool)>>,
     pub(crate) can_go_back: Cell<bool>,
     pub(crate) can_go_forward: Cell<bool>,
     load_status: Cell<LoadStatus>,
@@ -66,11 +79,15 @@ pub struct AppState {
     ui_events: RefCell<Vec<UiEvent>>,
 }
 
-/// Delegate notifications queued for the main thread.
+/// Delegate notifications queued for the main thread. Every event
+/// carries the tab it belongs to; the active tab is only a display
+/// concern.
 enum UiEvent {
-    Url(Url),
-    PageTitle(Option<String>),
-    LoadStatus(LoadStatus),
+    Url(TabId, Url),
+    PageTitle(TabId, Option<String>),
+    LoadStatus(TabId, LoadStatus),
+    Closed(TabId),
+    Crashed(TabId),
 }
 
 /// The winit application.
@@ -140,6 +157,7 @@ impl AppState {
             core: RefCell::new(BrowserCore::new()),
             pipeline: default_pipeline(TrackerEngine::builtin()),
             active_tab: Cell::new(None),
+            tab_history: RefCell::new(HashMap::new()),
             can_go_back: Cell::new(false),
             can_go_forward: Cell::new(false),
             load_status: Cell::new(LoadStatus::Complete),
@@ -156,32 +174,156 @@ impl AppState {
             .map_err(|error| format!("Could not parse initial URL: {error}"))?
             .unwrap_or_else(|| Url::parse("about:blank").expect("static URL"));
 
-        let webview = WebViewBuilder::new(&state.servo, state.rendering_context.clone())
-            .url(initial_url)
-            .hidpi_scale_factor(Scale::new(window.scale_factor() as f32))
-            .delegate(state.clone())
-            .clipboard_delegate(Rc::new(crate::clipboard::SystemClipboard::new()))
-            .build();
-        state.webviews.borrow_mut().push(webview);
-
-        state
-            .active_tab
-            .set(Some(state.core.borrow_mut().start_session()));
+        state.create_tab(initial_url);
 
         window.request_redraw();
         Ok(state)
     }
 
     /// Navigate according to address-bar input.
-    pub fn navigate(&self, input: &str) {
+    pub fn navigate(self: &Rc<Self>, input: &str) {
         match self.core.borrow().command_from_input(input, false) {
             Ok(NavigationCommand::Load(url)) => self.load_url(url),
             Ok(NavigationCommand::Reload) => self.navigate_reload(),
             Ok(NavigationCommand::Back) => self.navigate_back(),
             Ok(NavigationCommand::Forward) => self.navigate_forward(),
-            Ok(NavigationCommand::NewTab(_)) => warn!("new tabs are a Phase 5 feature"),
+            Ok(NavigationCommand::NewTab(url)) => self.create_tab(url),
             Err(error) => warn!("navigation rejected: {error}"),
         }
+    }
+
+    /// Create a new tab, activate it and load `url` into it. All tabs
+    /// share the window's single offscreen rendering context (the
+    /// servoshell model).
+    pub fn create_tab(self: &Rc<Self>, url: Url) {
+        info!("New tab: {url}");
+        let tab = self.core.borrow_mut().tabs.create_tab(url.clone());
+        let webview = WebViewBuilder::new(&self.servo, self.rendering_context.clone())
+            .url(url)
+            .hidpi_scale_factor(Scale::new(self.window.scale_factor() as f32))
+            .delegate(self.clone())
+            .clipboard_delegate(Rc::new(crate::clipboard::SystemClipboard::new()))
+            .build();
+        self.webviews.borrow_mut().push(TabWebView { tab, webview });
+        self.activate_tab(tab);
+    }
+
+    /// Close a tab. Closing the last tab opens a fresh blank one
+    /// (browser convention).
+    pub fn close_tab(self: &Rc<Self>, tab: TabId) {
+        info!("Close tab {tab:?}");
+        let was_active = self.core.borrow().tabs.active_tab_id() == Some(tab);
+        let index = self
+            .webviews
+            .borrow()
+            .iter()
+            .position(|tab_webview| tab_webview.tab == tab);
+        if let Some(index) = index {
+            self.webviews.borrow_mut().remove(index);
+        }
+        let _ = self.core.borrow_mut().tabs.close_tab(tab);
+        self.tab_history.borrow_mut().remove(&tab);
+        let is_empty = self.core.borrow().tabs.is_empty();
+        let next_tab = if !is_empty && was_active {
+            self.core.borrow().tabs.active_tab_id()
+        } else {
+            None
+        };
+        if is_empty {
+            self.create_tab(Url::parse("about:blank").expect("static URL"));
+        } else if let Some(next) = next_tab {
+            self.activate_tab(next);
+        }
+    }
+
+    /// The tab that owns `webview`, by engine id.
+    fn tab_for(&self, webview: &WebView) -> Option<TabId> {
+        self.webviews
+            .borrow()
+            .iter()
+            .find(|tab_webview| tab_webview.webview.id() == webview.id())
+            .map(|tab_webview| tab_webview.tab)
+    }
+
+    /// Make `tab` the active tab and synchronize the UI with its state.
+    pub(crate) fn activate_tab(&self, tab: TabId) {
+        if self.core.borrow_mut().tabs.activate(tab).is_err() {
+            warn!("cannot activate unknown tab {tab:?}");
+            return;
+        }
+        for tab_webview in self.webviews.borrow().iter() {
+            if tab_webview.tab == tab {
+                tab_webview.webview.show();
+            } else {
+                tab_webview.webview.hide();
+            }
+        }
+        let mut gui = self.gui.borrow_mut();
+        if let Some(tab_state) = self.core.borrow().tabs.get(tab) {
+            if !gui.url_dirty {
+                gui.url = tab_state.url.to_string();
+            }
+            if let Some(title) = &tab_state.title {
+                self.window.set_title(title);
+            } else {
+                self.window.set_title("Rust Browser");
+            }
+        }
+        let history = self
+            .tab_history
+            .borrow()
+            .get(&tab)
+            .copied()
+            .unwrap_or((false, false));
+        self.can_go_back.set(history.0);
+        self.can_go_forward.set(history.1);
+        self.active_tab.set(Some(tab));
+        self.window.request_redraw();
+    }
+
+    /// Switch to the next tab, or the previous one when shift is held.
+    fn cycle_tab(&self, backwards: bool) {
+        let tabs = self.core.borrow().tabs.tabs().to_vec();
+        if tabs.len() < 2 {
+            return;
+        }
+        let Some(active) = self.core.borrow().tabs.active_tab_id() else {
+            return;
+        };
+        let Some(index) = tabs.iter().position(|tab| tab.id == active) else {
+            return;
+        };
+        let next = if backwards {
+            (index + tabs.len() - 1) % tabs.len()
+        } else {
+            (index + 1) % tabs.len()
+        };
+        self.activate_tab(tabs[next].id);
+    }
+
+    /// Run `f` on the active tab's WebView, if there is one.
+    fn with_active_webview(&self, f: impl FnOnce(&WebView)) {
+        let Some(tab) = self.active_tab.get() else {
+            return;
+        };
+        if let Some(tab_webview) = self
+            .webviews
+            .borrow()
+            .iter()
+            .find(|tab_webview| tab_webview.tab == tab)
+        {
+            f(&tab_webview.webview);
+        }
+    }
+
+    /// The active tab's id, if any.
+    pub(crate) fn active_tab_id(&self) -> Option<TabId> {
+        self.active_tab.get()
+    }
+
+    /// The tab states in tab order, for the tab bar.
+    pub(crate) fn tab_states(&self) -> Vec<browser_core::Tab> {
+        self.core.borrow().tabs.tabs().to_vec()
     }
 
     fn load_url(&self, url: Url) {
@@ -189,76 +331,88 @@ impl AppState {
         if let Some(tab) = self.active_tab.get() {
             let _ = self.core.borrow_mut().load_started(tab);
         }
-        if let Some(webview) = self.webviews.borrow().first() {
-            webview.load(url);
-        }
+        self.with_active_webview(|webview| webview.load(url));
     }
 
     pub fn navigate_back(&self) {
         if self.can_go_back.get() {
-            if let Some(webview) = self.webviews.borrow().first() {
+            self.with_active_webview(|webview| {
                 webview.go_back(1);
-            }
+            });
         }
     }
 
     pub fn navigate_forward(&self) {
         if self.can_go_forward.get() {
-            if let Some(webview) = self.webviews.borrow().first() {
+            self.with_active_webview(|webview| {
                 webview.go_forward(1);
-            }
+            });
         }
     }
 
     pub fn navigate_reload(&self) {
-        if let Some(webview) = self.webviews.borrow().first() {
-            webview.reload();
-        }
+        self.with_active_webview(|webview| webview.reload());
     }
 
-    /// Have Servo paint all WebViews into their rendering context.
+    /// Have Servo paint the active WebView into its rendering context.
     pub(crate) fn repaint_webviews(&self) {
         self.window_rendering_context
             .make_current()
             .expect("Could not make window RenderingContext current");
-        for webview in self.webviews.borrow().iter() {
-            webview.paint();
+        if let Some(tab) = self.active_tab.get() {
+            if let Some(tab_webview) = self
+                .webviews
+                .borrow()
+                .iter()
+                .find(|tab_webview| tab_webview.tab == tab)
+            {
+                tab_webview.webview.paint();
+            }
         }
         self.window_rendering_context.present();
     }
 
     /// Apply queued delegate notifications to the core model and GUI.
-    fn process_ui_events(&self) {
+    fn process_ui_events(self: &Rc<Self>) {
         let events = std::mem::take(&mut *self.ui_events.borrow_mut());
         for event in events {
+            let active = self.active_tab.get();
             match event {
-                UiEvent::Url(url) => {
-                    if let Some(tab) = self.active_tab.get() {
-                        let _ = self.core.borrow_mut().location_changed(tab, url.clone());
-                    }
-                    let mut gui = self.gui.borrow_mut();
-                    if !gui.url_dirty {
-                        gui.url = url.to_string();
-                    }
-                }
-                UiEvent::PageTitle(title) => {
-                    if let Some(title) = title {
-                        self.window.set_title(&title);
-                    }
-                }
-                UiEvent::LoadStatus(status) => {
-                    self.load_status.set(status);
-                    if let Some(tab) = self.active_tab.get() {
-                        let mut core = self.core.borrow_mut();
-                        match status {
-                            LoadStatus::Complete => {
-                                let _ = core.load_finished(tab);
-                            }
-                            _ => {
-                                let _ = core.load_started(tab);
-                            }
+                UiEvent::Url(tab, url) => {
+                    let _ = self.core.borrow_mut().location_changed(tab, url.clone());
+                    if Some(tab) == active {
+                        let mut gui = self.gui.borrow_mut();
+                        if !gui.url_dirty {
+                            gui.url = url.to_string();
                         }
                     }
+                }
+                UiEvent::PageTitle(tab, title) => {
+                    let _ = self.core.borrow_mut().tabs.update(tab, |tab_state| {
+                        tab_state.title = title.clone();
+                    });
+                    if Some(tab) == active {
+                        if let Some(title) = title {
+                            self.window.set_title(&title);
+                        }
+                    }
+                }
+                UiEvent::LoadStatus(tab, status) => {
+                    if Some(tab) == active {
+                        self.load_status.set(status);
+                    }
+                    let mut core = self.core.borrow_mut();
+                    match status {
+                        LoadStatus::Complete => {
+                            let _ = core.load_finished(tab);
+                        }
+                        _ => {
+                            let _ = core.load_started(tab);
+                        }
+                    }
+                }
+                UiEvent::Closed(tab) | UiEvent::Crashed(tab) => {
+                    self.close_tab(tab);
                 }
             }
         }
@@ -293,9 +447,9 @@ impl AppState {
     fn forward_cursor_moved(&self, position: PhysicalPosition<f64>) {
         let point = self.webview_relative_point(position);
         self.last_mouse_point.set(Some(point));
-        if let Some(webview) = self.webviews.borrow().first() {
+        self.with_active_webview(|webview| {
             webview.notify_input_event(InputEvent::MouseMove(MouseMoveEvent::new(point.into())));
-        }
+        });
     }
 
     fn forward_mouse_button(&self, state: ElementState, button: winit::event::MouseButton) {
@@ -314,13 +468,13 @@ impl AppState {
             winit::event::MouseButton::Forward => MouseButton::Forward,
             winit::event::MouseButton::Other(id) => MouseButton::Other(id),
         };
-        if let Some(webview) = self.webviews.borrow().first() {
+        self.with_active_webview(|webview| {
             webview.notify_input_event(InputEvent::MouseButton(MouseButtonEvent::new(
                 action,
                 button,
                 point.into(),
             )));
-        }
+        });
     }
 
     fn forward_mouse_wheel(&self, delta: &MouseScrollDelta) {
@@ -340,9 +494,9 @@ impl AppState {
             },
             point.into(),
         ));
-        if let Some(webview) = self.webviews.borrow().first() {
+        self.with_active_webview(|webview| {
             webview.notify_input_event(event);
-        }
+        });
     }
 
     /// Track the modifier state from the key events themselves. The
@@ -407,10 +561,39 @@ impl AppState {
             repeat: key_event.repeat,
             is_composing: false,
         };
-        if let Some(webview) = self.webviews.borrow().first() {
+        self.with_active_webview(|webview| {
             webview.notify_input_event(InputEvent::Keyboard(
                 servo::input_events::KeyboardEvent::new(event),
             ));
+        });
+    }
+
+    /// Tab shortcuts (Ctrl+T/W/Tab) must win over both the page and
+    /// the address bar. Returns true when the event was consumed.
+    fn handle_tab_shortcut(self: &Rc<Self>, key_event: &KeyEvent) -> bool {
+        if key_event.state != ElementState::Pressed || key_event.repeat {
+            return false;
+        }
+        let modifiers = self.modifiers.get();
+        if !modifiers.control_key() {
+            return false;
+        }
+        match key_event.physical_key {
+            PhysicalKey::Code(KeyCode::KeyT) => {
+                self.create_tab(Url::parse("about:blank").expect("static URL"));
+                true
+            }
+            PhysicalKey::Code(KeyCode::KeyW) => {
+                if let Some(tab) = self.active_tab.get() {
+                    self.close_tab(tab);
+                }
+                true
+            }
+            PhysicalKey::Code(KeyCode::Tab) => {
+                self.cycle_tab(modifiers.shift_key());
+                true
+            }
+            _ => false,
         }
     }
 }
@@ -577,25 +760,59 @@ impl WebViewDelegate for AppState {
         self.window.request_redraw();
     }
 
-    fn notify_url_changed(&self, _webview: WebView, url: Url) {
+    fn notify_url_changed(&self, webview: WebView, url: Url) {
         info!("URL changed: {url}");
-        self.ui_events.borrow_mut().push(UiEvent::Url(url));
+        if let Some(tab) = self.tab_for(&webview) {
+            self.ui_events.borrow_mut().push(UiEvent::Url(tab, url));
+        }
     }
 
-    fn notify_page_title_changed(&self, _webview: WebView, title: Option<String>) {
-        self.ui_events.borrow_mut().push(UiEvent::PageTitle(title));
+    fn notify_page_title_changed(&self, webview: WebView, title: Option<String>) {
+        if let Some(tab) = self.tab_for(&webview) {
+            self.ui_events
+                .borrow_mut()
+                .push(UiEvent::PageTitle(tab, title));
+        }
     }
 
-    fn notify_load_status_changed(&self, _webview: WebView, status: LoadStatus) {
+    fn notify_load_status_changed(&self, webview: WebView, status: LoadStatus) {
         info!("Load status: {status:?}");
-        self.ui_events
-            .borrow_mut()
-            .push(UiEvent::LoadStatus(status));
+        if let Some(tab) = self.tab_for(&webview) {
+            self.ui_events
+                .borrow_mut()
+                .push(UiEvent::LoadStatus(tab, status));
+        }
     }
 
-    fn notify_history_changed(&self, _webview: WebView, entries: Vec<Url>, current: usize) {
-        self.can_go_back.set(current > 0);
-        self.can_go_forward.set(current + 1 < entries.len());
+    fn notify_history_changed(&self, webview: WebView, entries: Vec<Url>, current: usize) {
+        if let Some(tab) = self.tab_for(&webview) {
+            let can_go_back = current > 0;
+            let can_go_forward = current + 1 < entries.len();
+            self.tab_history
+                .borrow_mut()
+                .insert(tab, (can_go_back, can_go_forward));
+            if self.active_tab.get() == Some(tab) {
+                self.can_go_back.set(can_go_back);
+                self.can_go_forward.set(can_go_forward);
+            }
+        }
+    }
+
+    /// `window.close()` on the page: drop the tab.
+    fn notify_closed(&self, webview: WebView) {
+        info!("WebView closed by the page");
+        if let Some(tab) = self.tab_for(&webview) {
+            self.ui_events.borrow_mut().push(UiEvent::Closed(tab));
+        }
+    }
+
+    /// A pipeline in the WebView panicked: drop the tab instead of
+    /// taking down the app. The Servo instance keeps running.
+    fn notify_crashed(&self, webview: WebView, reason: String, _backtrace: Option<String>) {
+        warn!("WebView crashed: {reason}");
+        if let Some(tab) = self.tab_for(&webview) {
+            self.ui_events.borrow_mut().push(UiEvent::Crashed(tab));
+        }
     }
 
     fn notify_cursor_changed(&self, _webview: WebView, cursor: Cursor) {
@@ -681,8 +898,8 @@ impl ApplicationHandler<AppEvent> for App {
                 if size.width > 0 && size.height > 0 {
                     state.window_rendering_context.resize(*size);
                     state.rendering_context.resize(*size);
-                    for webview in state.webviews.borrow().iter() {
-                        webview.resize(*size);
+                    for tab_webview in state.webviews.borrow().iter() {
+                        tab_webview.webview.resize(*size);
                     }
                 }
                 state.window.request_redraw();
@@ -694,8 +911,8 @@ impl ApplicationHandler<AppEvent> for App {
                     .on_window_event(&state.window, &event);
                 let scale =
                     Scale::<_, DeviceIndependentPixel, DevicePixel>::new(*scale_factor as f32);
-                for webview in state.webviews.borrow().iter() {
-                    webview.set_hidpi_scale_factor(scale);
+                for tab_webview in state.webviews.borrow().iter() {
+                    tab_webview.webview.set_hidpi_scale_factor(scale);
                 }
                 state.window.request_redraw();
             }
@@ -754,6 +971,9 @@ impl ApplicationHandler<AppEvent> for App {
                 event: key_event, ..
             } => {
                 state.track_modifier_key(key_event);
+                if state.handle_tab_shortcut(key_event) {
+                    return;
+                }
                 if state.page_focus.get() && !state.gui.borrow().has_keyboard_focus() {
                     state.forward_keyboard(key_event);
                 } else {

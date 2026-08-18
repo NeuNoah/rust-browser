@@ -37,10 +37,17 @@ and is covered by tests.
 
 ## Phase 3 — Tabs
 
-- Tab bar in egui; multiple `WebView`s, one active
-- Tab lifecycle: open, close, switch; history per tab
-- Keyboard shortcuts (Ctrl+T/W/Tab)
-- Crash resilience: a dead WebView doesn't take down the app
+- [x] Tab bar in egui; multiple `WebView`s, one active
+      (all WebViews share one offscreen `RenderingContext`, the
+      servoshell model; the active tab is painted and blitted into
+      the egui scene, inactive tabs are hidden via `show`/`hide`)
+- [x] Tab lifecycle: open, close, switch; history per tab
+      (Ctrl+T/W/Tab/Shift+Tab; closing the last tab opens a fresh
+      blank tab; per-tab `(can_go_back, can_go_forward)` tracked)
+- [x] Keyboard shortcuts (Ctrl+T/W/Tab)
+- [x] Crash resilience: a dead WebView doesn't take down the app
+      (`notify_closed`/`notify_crashed` events close the tab; the
+      window survives, `WebViewDelegate` never panics)
 
 ## Phase 4 — Input & UX polish
 

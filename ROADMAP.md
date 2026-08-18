@@ -17,7 +17,7 @@ and is covered by tests.
       test page at 2.25x and 1.0125x device scale)
 - [x] Docs (this repository's markdown set), `tools/check.ps1` (quality
       gate: fmt, build, tests, clippy, verified green)
-- [ ] First commit to the local repository
+- [x] First commit to the local repository (`2e545a6`)
 
 ## Phase 2 — Session basics
 

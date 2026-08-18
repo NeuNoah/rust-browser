@@ -1,0 +1,38 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# Local configuration / secrets
+*.local.toml
+*.local.json
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs / temporary files
+*.log
+tmp/
+temp/
+
+# Benchmark artifacts
+benches/results/
+*.bench
+
+# Servo / engine artifacts
+servo-resources/

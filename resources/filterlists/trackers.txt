@@ -1,0 +1,86 @@
+# Built-in tracker list — canonical source
+#
+# Format (one rule per line):
+#   host:    example.com         exact host or subdomain match (no path)
+#   pattern: analytics.io/collect  case-insensitive substring match on URL
+#   # ...    comment
+#
+# Version of the list: bump TRACKER_LIST_VERSION in
+# crates/browser-privacy/src/trackers.rs when changing rules.
+#
+# Curated, conservative. Additions here must not break legitimate sites
+# (no whole-CDN or whole-search-engine hosts). The full EasyPrivacy list
+# arrives with the adblock integration phase.
+
+# Analytics / advertising / social pixels — the classics.
+host: google-analytics.com
+host: googletagmanager.com
+host: doubleclick.net
+host: googleadservices.com
+host: googlesyndication.com
+host: facebook.net
+host: fbcdn.net
+host: atlassbx.com
+host: criteo.com
+host: criteo.net
+host: adsrvr.org
+host: adnxs.com
+host: amazon-adsystem.com
+host: taboola.com
+host: outbrain.com
+host: quantserve.com
+host: scorecardresearch.com
+host: addthis.com
+host: adroll.com
+host: moatads.com
+host: chartbeat.com
+host: hotjar.com
+host: mousestats.com
+host: segment.io
+host: amplitude.com
+host: mixpanel.com
+host: kissmetrics.com
+host: optimizely.com
+host: crazyegg.com
+host: mouseflow.com
+host: fullstory.com
+host: heap.io
+host: logrocket.com
+host: sentry.io
+host: bugsnag.com
+host: rollbar.com
+host: newrelic.com
+host: appdynamics.com
+host: datadoghq.com
+host: 1rx.io
+host: adform.net
+host: adtech.de
+host: awltrack.com
+host: bluelithium.com
+host: casalemedia.com
+host: contextweb.com
+host: crwdcntrl.net
+host: dotomi.com
+host: eyeota.net
+host: imrworldwide.com
+host: lijit.com
+host: media.net
+host: openx.net
+host: pubmatic.com
+host: rlcdn.com
+host: rubiconproject.com
+host: spotxchange.com
+host: turn.com
+host: yieldmo.com
+host: zemanta.com
+host: zedo.com
+
+# Fingerprinting / user recognition infrastructure.
+host: fingerprintjs.com
+host: fpjs.io
+
+# Common tracking endpoints, as patterns (conservative substrings).
+pattern: /pixel
+pattern: /beacon
+pattern: /pageview
+pattern: /tracking

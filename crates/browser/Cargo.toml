@@ -1,0 +1,27 @@
+[package]
+name = "browser"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "rust-browser"
+path = "src/main.rs"
+
+[dependencies]
+arboard = "3"
+browser-core.workspace = true
+browser-network.workspace = true
+browser-privacy.workspace = true
+egui.workspace = true
+egui_glow.workspace = true
+egui-winit.workspace = true
+env_logger.workspace = true
+euclid = "0.22"
+keyboard-types = "0.8.3"
+log.workspace = true
+rustls.workspace = true
+servo.workspace = true
+url.workspace = true
+winit.workspace = true

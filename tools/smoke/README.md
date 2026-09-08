@@ -22,7 +22,9 @@ Verify:
 
 1. Normal text, dead keys and AltGr work in the input, textarea and
    contenteditable area. Backspace/Delete, arrows, Home/End, Enter, Tab
-   and key repeat behave normally.
+   and key repeat behave normally. Confirm in the event log that the
+   DOM `key`, `code`, `repeat`, `isComposing` and AltGraph modifier
+   values match the physical action.
 2. With a system IME, preedit is visible, commit appears exactly once,
    and the event log shows Start/Update/End in order. Repeat in the URL
    bar and confirm that candidate-selection Enter does not navigate.

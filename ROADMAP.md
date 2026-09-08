@@ -53,7 +53,9 @@ by a documented manual smoke test when it requires Servo and a window.
 
 - [ ] Complete everyday keyboard coverage in the URL bar and page
       (direct Unicode input, focus arbitration and shortcuts are wired;
-      dead keys, AltGr and key repeat still need manual coverage)
+      dead-key, AltGr, repeat and composition flags now have isolated
+      translation regression tests and visible smoke-page diagnostics;
+      the real keyboard-layout paths still need manual coverage)
 - [ ] System IME in the URL bar and page (composition translation and
       commit lifecycle have unit tests; real preedit/candidate
       placement and commit at multiple DPI scales remain to be tested)

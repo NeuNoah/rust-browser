@@ -84,6 +84,17 @@
     const log = document.querySelector('#event-log');
     for (const id of ['single', 'multi', 'editable']) {
       const target = document.querySelector(`#${id}`);
+      target.addEventListener('keydown', event => {
+        const modifiers = [
+          event.ctrlKey && 'ctrl',
+          event.altKey && 'alt',
+          event.shiftKey && 'shift',
+          event.getModifierState('AltGraph') && 'alt-graph',
+        ].filter(Boolean).join('+') || 'none';
+        log.textContent += `\n${id}: keydown key=${JSON.stringify(event.key)}`
+          + ` code=${event.code} repeat=${event.repeat}`
+          + ` composing=${event.isComposing} modifiers=${modifiers}`;
+      });
       for (const type of ['compositionstart', 'compositionupdate', 'compositionend', 'input']) {
         target.addEventListener(type, event => {
           const data = event.data === undefined ? '' : ` data=${JSON.stringify(event.data)}`;

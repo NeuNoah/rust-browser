@@ -1421,23 +1421,16 @@ impl AppState {
     /// Translate a winit key event into a Servo keyboard event and hand
     /// it to the page.
     fn forward_keyboard(&self, key_event: &KeyEvent) {
-        let event = keyboard_types::KeyboardEvent {
-            state: match key_event.state {
-                ElementState::Pressed => keyboard_types::KeyState::Down,
-                ElementState::Released => keyboard_types::KeyState::Up,
-            },
-            key: key_from_winit(key_event.logical_key.clone()),
-            code: code_from_physical_key(key_event.physical_key),
-            location: match key_event.location {
-                winit::keyboard::KeyLocation::Standard => keyboard_types::Location::Standard,
-                winit::keyboard::KeyLocation::Left => keyboard_types::Location::Left,
-                winit::keyboard::KeyLocation::Right => keyboard_types::Location::Right,
-                winit::keyboard::KeyLocation::Numpad => keyboard_types::Location::Numpad,
-            },
-            modifiers: modifiers_from_winit(self.modifiers.get(), self.alt_graph.get()),
-            repeat: key_event.repeat,
-            is_composing: self.ime_composing_tab.get() == self.active_tab.get(),
-        };
+        let event = keyboard_event_from_winit(
+            key_event.state,
+            key_event.logical_key.clone(),
+            key_event.physical_key,
+            key_event.location,
+            key_event.repeat,
+            self.modifiers.get(),
+            self.alt_graph.get(),
+            self.ime_composing_tab.get() == self.active_tab.get(),
+        );
         let clipboard_access =
             clipboard_access_for_key_event(key_event, self.modifiers.get(), self.alt_graph.get());
         let grants_user_action = key_event.state == ElementState::Pressed
@@ -1653,6 +1646,39 @@ impl AppState {
         self.active_tab
             .get()
             .is_some_and(|tab| self.page_ime_controls.borrow().contains_key(&tab))
+    }
+}
+
+/// Build the DOM-style keyboard event sent through Servo. Keeping this
+/// conversion independent from the window and WebView makes layout,
+/// repeat and composition behavior regression-testable.
+#[allow(clippy::too_many_arguments)]
+fn keyboard_event_from_winit(
+    state: ElementState,
+    logical_key: winit::keyboard::Key,
+    physical_key: winit::keyboard::PhysicalKey,
+    location: winit::keyboard::KeyLocation,
+    repeat: bool,
+    modifiers: ModifiersState,
+    alt_graph: bool,
+    is_composing: bool,
+) -> keyboard_types::KeyboardEvent {
+    keyboard_types::KeyboardEvent {
+        state: match state {
+            ElementState::Pressed => keyboard_types::KeyState::Down,
+            ElementState::Released => keyboard_types::KeyState::Up,
+        },
+        key: key_from_winit(logical_key),
+        code: code_from_physical_key(physical_key),
+        location: match location {
+            winit::keyboard::KeyLocation::Standard => keyboard_types::Location::Standard,
+            winit::keyboard::KeyLocation::Left => keyboard_types::Location::Left,
+            winit::keyboard::KeyLocation::Right => keyboard_types::Location::Right,
+            winit::keyboard::KeyLocation::Numpad => keyboard_types::Location::Numpad,
+        },
+        modifiers: modifiers_from_winit(modifiers, alt_graph),
+        repeat,
+        is_composing,
     }
 }
 
@@ -3107,6 +3133,71 @@ mod tests {
         assert!(modifiers.contains(keyboard_types::Modifiers::ALT_GRAPH));
         assert!(!browser_shortcuts_enabled(ModifiersState::CONTROL, true));
         assert!(browser_shortcuts_enabled(ModifiersState::CONTROL, false));
+    }
+
+    #[test]
+    fn dead_key_translation_preserves_dom_key_and_physical_code() {
+        let event = keyboard_event_from_winit(
+            ElementState::Pressed,
+            Key::Dead(Some('^')),
+            PhysicalKey::Code(KeyCode::Quote),
+            winit::keyboard::KeyLocation::Standard,
+            false,
+            ModifiersState::empty(),
+            false,
+            false,
+        );
+
+        assert_eq!(event.state, keyboard_types::KeyState::Down);
+        assert_eq!(
+            event.key,
+            keyboard_types::Key::Named(keyboard_types::NamedKey::Dead)
+        );
+        assert_eq!(event.code, keyboard_types::Code::Quote);
+        assert!(!event.repeat);
+        assert!(!event.is_composing);
+    }
+
+    #[test]
+    fn alt_graph_text_is_not_mistaken_for_a_browser_shortcut() {
+        let event = keyboard_event_from_winit(
+            ElementState::Pressed,
+            Key::Character("@".into()),
+            PhysicalKey::Code(KeyCode::KeyQ),
+            winit::keyboard::KeyLocation::Standard,
+            false,
+            ModifiersState::CONTROL | ModifiersState::ALT,
+            true,
+            false,
+        );
+
+        assert_eq!(event.key, keyboard_types::Key::Character("@".to_owned()));
+        assert_eq!(event.code, keyboard_types::Code::KeyQ);
+        assert!(event
+            .modifiers
+            .contains(keyboard_types::Modifiers::ALT_GRAPH));
+        assert!(!browser_shortcuts_enabled(
+            ModifiersState::CONTROL | ModifiersState::ALT,
+            true
+        ));
+    }
+
+    #[test]
+    fn repeat_and_composition_flags_reach_servo_unchanged() {
+        let event = keyboard_event_from_winit(
+            ElementState::Pressed,
+            Key::Character("a".into()),
+            PhysicalKey::Code(KeyCode::KeyA),
+            winit::keyboard::KeyLocation::Standard,
+            true,
+            ModifiersState::SHIFT,
+            false,
+            true,
+        );
+
+        assert!(event.repeat);
+        assert!(event.is_composing);
+        assert!(event.modifiers.contains(keyboard_types::Modifiers::SHIFT));
     }
 
     #[test]

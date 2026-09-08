@@ -1,0 +1,54 @@
+name: Policy CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: policy-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  policy-quality:
+    name: Policy quality (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Test engine-independent crates
+        run: >-
+          cargo test --locked
+          -p browser-core
+          -p browser-network
+          -p browser-privacy
+          -p browser-security
+      - name: Lint engine-independent crates
+        run: >-
+          cargo clippy --locked --all-targets
+          -p browser-core
+          -p browser-network
+          -p browser-privacy
+          -p browser-security
+          -- -D warnings
+
+  windows-security:
+    name: Windows security tests
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Test Windows filesystem boundary
+        run: cargo test --locked -p browser-security

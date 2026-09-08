@@ -1,0 +1,54 @@
+name: Bug report
+description: Report a reproducible defect that is not a security vulnerability.
+title: "bug: "
+labels: ["kind: bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Rust Browser. For vulnerabilities, use private reporting instead of this form.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Start the browser with …
+        2. Navigate to …
+        3. Observe …
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: Commit or version
+      placeholder: e9661f2 or newer
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Windows version, display scale, Rust version and relevant input method.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Additional evidence
+      description: Add minimal logs or screenshots after removing secrets, personal data and local paths.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I removed secrets, personal data and private local paths.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

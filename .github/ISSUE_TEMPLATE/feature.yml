@@ -1,0 +1,30 @@
+name: Feature request
+description: Propose a scoped improvement aligned with the roadmap.
+title: "feature: "
+labels: ["kind: enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest useful outcome, not only an implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Security and privacy impact
+      description: Note new data, permissions, network calls or trust boundaries. Write “none identified” when applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

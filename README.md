@@ -1,9 +1,15 @@
 # Rust Browser
 
+[![Policy CI](https://github.com/NeuNoah/rust-browser/actions/workflows/policy-ci.yml/badge.svg)](https://github.com/NeuNoah/rust-browser/actions/workflows/policy-ci.yml)
+
 An experimental, privacy-oriented web browser written in Rust. It uses
 [Servo](https://servo.org/) as the rendering engine and winit+egui for
 the interface. Performance and memory use have not been benchmarked yet,
 so no lightweight claim is made at this stage.
+
+> **Experimental software:** the embedded renderer is not sandboxed and
+> the browser is not suitable for sensitive or everyday browsing yet.
+> See [SECURITY.md](SECURITY.md) for implemented defenses and known gaps.
 
 ## Status
 
@@ -148,6 +154,12 @@ dependencies on the engine, so they build and test in seconds.
 - [DEPENDENCIES.md](DEPENDENCIES.md) — every dependency, why and its license
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to work on this project
 - [tools/smoke/README.md](tools/smoke/README.md) — manual GUI checks
+
+## Security reports
+
+Please do not disclose vulnerabilities in a public issue. Use GitHub's
+[private vulnerability reporting](https://github.com/NeuNoah/rust-browser/security/advisories/new)
+so details can be assessed before public disclosure.
 
 ## License
 

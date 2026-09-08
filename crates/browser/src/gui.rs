@@ -488,7 +488,7 @@ impl Gui {
                 }
 
                 let response = ui.add_sized(
-                    [(ui.available_width() - 68.0).max(80.0), 24.0],
+                    [(ui.available_width() - 158.0).max(80.0), 24.0],
                     egui::TextEdit::singleline(url).id(url_bar_id()).hint_text(
                         if state.search_engine() == SearchEngine::Disabled {
                             "Enter address"
@@ -535,6 +535,28 @@ impl Gui {
                         }
                     }
                 }
+                let (blocking_label, blocking_hint) =
+                    if let Some((host, stats)) = state.active_blocking_stats() {
+                        let total = stats.total();
+                        let label = if total > 9_999 {
+                            "Blocked 9999+".to_owned()
+                        } else {
+                            format!("Blocked {total}")
+                        };
+                        let hint = format!(
+                            "Blocked for {host} this session\nTrackers: {}\nAds: {}",
+                            stats.trackers(),
+                            stats.advertisements()
+                        );
+                        (label, hint)
+                    } else {
+                        (
+                            "Blocked —".to_owned(),
+                            "Blocking statistics are available on web pages".to_owned(),
+                        )
+                    };
+                ui.label(egui::RichText::new(blocking_label).small())
+                    .on_hover_text(blocking_hint);
                 let reader_state = state.reader_button_state();
                 let (reader_enabled, reader_selected, reader_hint) = match reader_state {
                     ReaderButtonState::Unavailable => (

@@ -24,7 +24,8 @@ still open. The download filesystem boundary is implemented and tested,
 but Servo/UI integration is not. Phase 6 search is complete with no
 provider selected by default. Phase 7 now has Brave's network adblock
 engine in the live request pipeline with a small embedded seed list;
-subscription updates and blocking statistics are still open. The browser
+the toolbar reports bounded per-site blocking counts, while subscription
+updates are still open. The browser
 is not yet suitable as a daily browser (no usable downloads or persistent
 history yet).
 
@@ -87,7 +88,8 @@ history yet).
     responses; exact same-host first-party requests remain usable)
   - Brave's ABP-compatible network-filter engine with a small, local seed
     list. It performs no list download or background update yet; a tracker
-    override does not bypass this later pipeline layer
+    override does not bypass this later pipeline layer. The toolbar shows
+    session-only per-site tracker/ad counts without retaining request URLs
 - No telemetry, accounts, sync or remote configuration
 
 ## Building

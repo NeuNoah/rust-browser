@@ -29,7 +29,10 @@ are planned but not implemented are listed as such.
 - **Local ad-filter engine.** Brave's `adblock` crate evaluates
   ABP-compatible network rules from a small seed list compiled into the
   binary. It performs no subscription fetch or background update. A
-  per-site tracker exception cannot skip this separate layer.
+  per-site tracker exception cannot skip this separate layer. The toolbar
+  reports tracker and ad blocks for the committed top-level host. Counts
+  are session-only, retain no request URLs, exclude unrelated security
+  blocks and global unattributed traffic, and are capped at 256 sites.
 - **HTTPS-first input.** Typing `example.com` never produces a plaintext
   first load; bare hosts always complete to `https://`.
 - **Mixed-content blocking** (HTTP subresources on HTTPS pages).
@@ -77,7 +80,8 @@ are planned but not implemented are listed as such.
 ## Data the browser itself stores
 
 - The embedder does not create a durable history, settings or tracker-
-  override file; those values are session-only.
+  override file. Per-site blocking counts are likewise session-only and
+  bounded; none of these values are persisted.
 - Servo is started with `temporary_storage = true`, but its client and
   cache-storage implementations can still create temporary directories
   and SQLite/files on disk. Normal shutdown should remove temporary

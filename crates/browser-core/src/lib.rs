@@ -10,11 +10,13 @@
 
 #![forbid(unsafe_code)]
 
+pub mod blocking_stats;
 pub mod core;
 pub mod navigation;
 pub mod search;
 pub mod tabs;
 
+pub use blocking_stats::{BlockingKind, BlockingStatsStore, SiteBlockingStats};
 pub use core::BrowserCore;
 pub use navigation::{normalize_input, NavigationCommand, NavigationError};
 pub use search::{SearchEngine, SearchError};

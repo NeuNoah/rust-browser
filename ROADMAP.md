@@ -151,7 +151,10 @@ fingerprint scope and reproducible algorithm are recorded in
       44-file automated source/test fingerprint is
       `1acca381658144f2daf3a59a2e1cabc5c9bc4e1321c5c85f497ff655a06ed0fc`
 - [ ] User-selected subscription list catalog and bounded, atomic update UX
-- [ ] Per-site blocking stats in the UI
+- [x] Per-site blocking stats in the toolbar: session-only tracker/ad
+      counts are keyed by the trusted committed host, exclude unrelated
+      security-policy blocks and global unattributed requests, and retain
+      at most 256 sites
 
 ## Phase 8 — Session & history
 

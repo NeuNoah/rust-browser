@@ -34,9 +34,13 @@ use winit::raw_window_handle::{HasDisplayHandle as _, HasWindowHandle as _};
 use winit::window::{CursorIcon, Window, WindowId};
 
 use browser_core::{
-    BrowserCore, LoadState, NavigationCommand, NavigationError, SearchEngine, TabId,
+    BlockingKind, BlockingStatsStore, BrowserCore, LoadState, NavigationCommand, NavigationError,
+    SearchEngine, SiteBlockingStats, TabId,
 };
-use browser_network::{default_pipeline, RequestContext, RequestPipeline, ResourceType};
+use browser_network::{
+    default_pipeline, RequestContext, RequestPipeline, ResourceType, ADBLOCK_LAYER_NAME,
+    TRACKER_LAYER_NAME,
+};
 use browser_privacy::trackers::TrackerEngine;
 
 use crate::gui::{Gui, ReaderScrollCommand};
@@ -52,6 +56,7 @@ const MAX_FILE_FILTERS: usize = 64;
 const MAX_FILE_FILTER_LENGTH: usize = 64;
 const READER_EXTRACTION_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_OUTSTANDING_READER_EVALUATIONS: usize = 4;
+const MAX_BLOCKING_STATS_SITES: usize = 256;
 
 fn reader_scroll_command(key_event: &KeyEvent) -> Option<ReaderScrollCommand> {
     match key_event.logical_key {
@@ -345,6 +350,9 @@ pub struct AppState {
     /// Per-site tracker override: host → allow trackers. Consulted in
     /// `load_web_resource`; `None` means the default pipeline applies.
     tracker_overrides: Rc<RefCell<HashMap<String, bool>>>,
+    /// Session-only counts keyed by the trusted committed top-level host.
+    /// The bounded store never retains request URLs or persists history.
+    blocking_stats: RefCell<BlockingStatsStore>,
     /// Per-tab system-IME targets reported by Servo. Composition state
     /// is separate: a focused text field is not necessarily composing.
     page_ime_controls: RefCell<HashMap<TabId, PageImeControl>>,
@@ -518,6 +526,7 @@ impl AppState {
             ui_events: RefCell::new(Vec::new()),
             start_page: RefCell::new(Url::parse("about:blank").expect("static URL")),
             tracker_overrides,
+            blocking_stats: RefCell::new(BlockingStatsStore::new(MAX_BLOCKING_STATS_SITES)),
             page_ime_controls: RefCell::new(HashMap::new()),
             ime_composing_tab: Cell::new(None),
             ui_ime_composing: Cell::new(false),
@@ -1966,6 +1975,14 @@ fn site_host_for_request(page: Option<&Url>) -> Option<String> {
         .map(|host| host.trim_end_matches('.').to_ascii_lowercase())
 }
 
+fn blocking_kind_for_layer(layer: &str) -> Option<BlockingKind> {
+    match layer {
+        TRACKER_LAYER_NAME => Some(BlockingKind::Tracker),
+        ADBLOCK_LAYER_NAME => Some(BlockingKind::Advertisement),
+        _ => None,
+    }
+}
+
 pub(crate) fn url_identity(url: &Url) -> String {
     if url.has_host() {
         url.origin().ascii_serialization()
@@ -2286,6 +2303,13 @@ impl WebViewDelegate for AppState {
             browser_network::PipelineDecision::Allow => {}
             browser_network::PipelineDecision::Block { layer, reason } => {
                 debug!("Blocked {} ({layer}: {reason})", url_identity(&url));
+                if let (Some(host), Some(kind)) =
+                    (site_host.as_deref(), blocking_kind_for_layer(layer))
+                {
+                    self.blocking_stats.borrow_mut().record(host, kind);
+                    self.needs_repaint.set(true);
+                    self.window.request_redraw();
+                }
                 load.intercept(WebResourceResponse::new(url)).finish();
             }
         }
@@ -2293,6 +2317,17 @@ impl WebViewDelegate for AppState {
 }
 
 impl AppState {
+    pub(crate) fn active_blocking_stats(&self) -> Option<(String, SiteBlockingStats)> {
+        let host = self
+            .core
+            .borrow()
+            .tabs
+            .active_tab()
+            .and_then(|tab| site_host_for_request(Some(&tab.url)))?;
+        let stats = self.blocking_stats.borrow().for_site(&host);
+        Some((host, stats))
+    }
+
     /// Settings: the URL new tabs load.
     pub(crate) fn start_page_url(&self) -> Url {
         self.start_page.borrow().clone()
@@ -3146,6 +3181,20 @@ mod tests {
             Some("allowed.example")
         );
         assert_eq!(site_host_for_request(None), None);
+    }
+
+    #[test]
+    fn blocking_stats_count_only_privacy_layers() {
+        assert_eq!(
+            blocking_kind_for_layer(TRACKER_LAYER_NAME),
+            Some(BlockingKind::Tracker)
+        );
+        assert_eq!(
+            blocking_kind_for_layer(ADBLOCK_LAYER_NAME),
+            Some(BlockingKind::Advertisement)
+        );
+        assert_eq!(blocking_kind_for_layer("mixed-content"), None);
+        assert_eq!(blocking_kind_for_layer("private-network"), None);
     }
 
     #[test]

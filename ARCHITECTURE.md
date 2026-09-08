@@ -104,6 +104,12 @@ top-level URL nor a per-site tracker exception. The private-network
 layer recognizes literal/local URL hosts; post-DNS enforcement is still
 needed to cover DNS rebinding.
 
+Tracker- and ad-layer blocks associated with a WebView increment a
+bounded `BlockingStatsStore` in `browser-core`, keyed only by the
+normalized trusted top-level host. Global loads and security-policy
+blocks are not counted, request URLs are not retained, and the toolbar
+reads the active site's session totals without persistent storage.
+
 Proxy selection is startup-only. `StartupProxy` validates one
 credential-free HTTP endpoint and a bounded bypass list before winit
 creates a window. `AppState::create` clears proxy values inherited by

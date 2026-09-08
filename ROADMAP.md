@@ -57,8 +57,9 @@ by a documented manual smoke test when it requires Servo and a window.
       translation regression tests and visible smoke-page diagnostics;
       the real keyboard-layout paths still need manual coverage)
 - [ ] System IME in the URL bar and page (composition translation and
-      commit lifecycle have unit tests; real preedit/candidate
-      placement and commit at multiple DPI scales remain to be tested)
+      commit lifecycle have unit tests; page-relative candidate geometry
+      is regression-tested at 1x, 1.0125x and 2.25x; real preedit,
+      candidate placement and commit at those scales remain to be tested)
 - [x] Page context menus
 - [x] Servo form-control UI for grouped single-select, multiple-select
       and color input, including cancel/apply behavior

@@ -1626,15 +1626,15 @@ impl AppState {
             .and_then(|tab| self.page_ime_controls.borrow().get(&tab).copied());
         self.window.set_ime_allowed(control.is_some());
         if let Some(control) = control {
-            let origin_x = webview_rect.min.x * pixels_per_point;
-            let origin_y = webview_rect.min.y * pixels_per_point;
-            self.window.set_ime_cursor_area(
-                winit::dpi::PhysicalPosition::new(
-                    origin_x + control.x as f32,
-                    origin_y + control.y as f32,
-                ),
-                winit::dpi::PhysicalSize::new(control.width, control.height),
+            let (position, size) = page_ime_cursor_area(
+                webview_rect.min,
+                pixels_per_point,
+                control.x,
+                control.y,
+                control.width,
+                control.height,
             );
+            self.window.set_ime_cursor_area(position, size);
         }
     }
 
@@ -1647,6 +1647,29 @@ impl AppState {
             .get()
             .is_some_and(|tab| self.page_ime_controls.borrow().contains_key(&tab))
     }
+}
+
+fn page_ime_cursor_area(
+    webview_origin: egui::Pos2,
+    pixels_per_point: f32,
+    control_x: i32,
+    control_y: i32,
+    control_width: u32,
+    control_height: u32,
+) -> (
+    winit::dpi::PhysicalPosition<f64>,
+    winit::dpi::PhysicalSize<u32>,
+) {
+    let scale = f64::from(pixels_per_point);
+    let origin_x = f64::from(webview_origin.x) * scale;
+    let origin_y = f64::from(webview_origin.y) * scale;
+    (
+        winit::dpi::PhysicalPosition::new(
+            origin_x + f64::from(control_x),
+            origin_y + f64::from(control_y),
+        ),
+        winit::dpi::PhysicalSize::new(control_width, control_height),
+    )
 }
 
 /// Build the DOM-style keyboard event sent through Servo. Keeping this
@@ -3198,6 +3221,20 @@ mod tests {
         assert!(event.repeat);
         assert!(event.is_composing);
         assert!(event.modifiers.contains(keyboard_types::Modifiers::SHIFT));
+    }
+
+    #[test]
+    fn page_ime_cursor_area_combines_logical_chrome_and_device_pixels() {
+        for (scale, origin, expected) in [
+            (1.0, egui::pos2(8.0, 52.0), (27.0, 63.0)),
+            (1.0125, egui::pos2(8.0, 52.0), (27.1, 63.65)),
+            (2.25, egui::pos2(8.0, 52.0), (37.0, 128.0)),
+        ] {
+            let (position, size) = page_ime_cursor_area(origin, scale, 19, 11, 240, 32);
+            assert!((position.x - expected.0).abs() < 0.001);
+            assert!((position.y - expected.1).abs() < 0.001);
+            assert_eq!(size, winit::dpi::PhysicalSize::new(240, 32));
+        }
     }
 
     #[test]

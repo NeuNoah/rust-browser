@@ -1,6 +1,7 @@
 # Rust Browser
 
 [![Policy CI](https://github.com/NeuNoah/rust-browser/actions/workflows/policy-ci.yml/badge.svg)](https://github.com/NeuNoah/rust-browser/actions/workflows/policy-ci.yml)
+[![CodeQL](https://github.com/NeuNoah/rust-browser/actions/workflows/codeql.yml/badge.svg)](https://github.com/NeuNoah/rust-browser/actions/workflows/codeql.yml)
 
 An experimental, privacy-oriented web browser written in Rust. It uses
 [Servo](https://servo.org/) as the rendering engine and winit+egui for

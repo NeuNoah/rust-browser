@@ -457,7 +457,11 @@ mod tests {
                 std::process::id()
             ));
             fs::create_dir(&path).expect("create isolated download test directory");
-            Self(path)
+            // Hosted Windows runners may expose their temporary root through
+            // a junction. Production correctly rejects such an unresolved
+            // path, while these tests need an ordinary directory to exercise
+            // the subsequent writer invariants.
+            Self(fs::canonicalize(path).expect("canonicalize isolated test directory"))
         }
 
         fn path(&self) -> &Path {
@@ -525,9 +529,10 @@ mod tests {
 
     #[test]
     fn target_path_stays_in_directory() {
-        let policy = DownloadPolicy::new(r"C:\Users\alice\Downloads");
+        let root = PathBuf::from(r"C:\Users\alice\Downloads");
+        let policy = DownloadPolicy::new(&root);
         let ok = policy.target_path("report.pdf").unwrap();
-        assert_eq!(ok, PathBuf::from(r"C:\Users\alice\Downloads\report.pdf"));
+        assert_eq!(ok, root.join("report.pdf"));
 
         // Traversal is neutralized by sanitization before validation.
         let safe = policy.target_path("../../etc/passwd").unwrap();

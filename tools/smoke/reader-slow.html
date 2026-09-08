@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Slow Reader extraction smoke page</title>
+</head>
+<body>
+  <main>
+    <h1>Slow Reader extraction smoke page</h1>
+    <p>This local fixture deliberately delays the first DOM walker created by Reader so the native five-second timeout and in-flight tombstone can be verified without leaving a permanently hung script thread.</p>
+    <p>The article is long enough to pass the independent minimum-content check once the delayed evaluator eventually returns. Until then, the browser chrome, tabs, Escape handling, and native error surface must remain responsive.</p>
+  </main>
+  <script>
+    const originalCreateTreeWalker = document.createTreeWalker.bind(document);
+    let delayedReaderWalker = false;
+    document.createTreeWalker = (...args) => {
+      if (!delayedReaderWalker) {
+        delayedReaderWalker = true;
+        const deadline = performance.now() + 7000;
+        while (performance.now() < deadline) {
+          // Intentional finite main-world stall for the local smoke test.
+        }
+      }
+      return originalCreateTreeWalker(...args);
+    };
+  </script>
+</body>
+</html>

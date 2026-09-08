@@ -14,7 +14,7 @@
 //!  ↓
 //! Tracker Blocking      (browser-privacy)
 //!  ↓
-//! Adblock               (Phase 7 — Brave adblock crate)
+//! Adblock               (Brave adblock crate)
 //!  ↓
 //! Network Request
 //!  ↓
@@ -25,11 +25,16 @@
 //! circuits on the first block. The pipeline is pure: it performs no
 //! I/O and blocks no threads, so it is fully unit-testable.
 
+#![forbid(unsafe_code)]
+
 pub mod layers;
 pub mod pipeline;
 pub mod resource_type;
 
-pub use layers::{default_pipeline, MixedContentLayer, SchemeValidationLayer, TrackerLayer};
+pub use layers::{
+    default_pipeline, AdblockLayer, MixedContentLayer, PrivateNetworkLayer, SchemeValidationLayer,
+    TrackerLayer, ADBLOCK_LAYER_NAME, TRACKER_LAYER_NAME,
+};
 pub use pipeline::{
     block_reason, Layer, LayerOutcome, PipelineDecision, RequestContext, RequestPipeline,
     RequestPipelineError,

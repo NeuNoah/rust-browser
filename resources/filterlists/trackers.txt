@@ -75,12 +75,14 @@ host: yieldmo.com
 host: zemanta.com
 host: zedo.com
 
+# Reserved-domain sentinel for deterministic local integration tests.
+# `.test` cannot name a public site, so this cannot block real traffic.
+host: tracker.site.test
+
 # Fingerprinting / user recognition infrastructure.
 host: fingerprintjs.com
 host: fpjs.io
 
-# Common tracking endpoints, as patterns (conservative substrings).
-pattern: /pixel
-pattern: /beacon
-pattern: /pageview
-pattern: /tracking
+# URL-pattern rules are deliberately absent from the built-in list.
+# Generic path fragments such as `/pixel` create unacceptable false
+# positives on first-party content (for example `/pixel-art.png`).

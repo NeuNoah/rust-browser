@@ -3,11 +3,10 @@
 //! Two entry points exist:
 //!
 //! - [`NavigationPolicy::check_address_bar`] — user-initiated navigation
-//!   from the URL bar. Denies `javascript:`, `blob:`, `data:`, `mailto:`
-//!   and unknown schemes outright.
+//!   from the URL bar. Allows only `http:`, `https:` and `about:`.
 //! - [`NavigationPolicy::check_content`] — navigation initiated by web
-//!   content (links, redirects, `window.open`). Further denies `file:`
-//!   and `data:`.
+//!   content (links, redirects, `window.open`). Uses the same scheme
+//!   allow-list and stricter source-specific checks can be added here.
 //!
 //! The policy is pure and deterministic; it performs no I/O. Later
 //! phases add blocking-list checks, HTTPS-first upgrades and phishing
@@ -30,6 +29,8 @@ pub enum NavigationPolicyError {
     EmbeddedCredentials,
     /// The host is empty but the scheme requires one.
     EmptyHost,
+    /// Only the inert `about:blank` page is exposed by this embedder.
+    InternalPageNotAllowed,
 }
 
 impl core::fmt::Display for NavigationPolicyError {
@@ -41,6 +42,7 @@ impl core::fmt::Display for NavigationPolicyError {
             Self::MissingHost => write!(f, "URL has no host"),
             Self::EmbeddedCredentials => write!(f, "URL embeds user credentials"),
             Self::EmptyHost => write!(f, "URL has an empty host"),
+            Self::InternalPageNotAllowed => write!(f, "internal page is not available"),
         }
     }
 }
@@ -56,8 +58,9 @@ pub enum NavigationDecision {
     Deny(NavigationPolicyError),
 }
 
-/// Where the navigation originates. This matters: content must never
-/// navigate to `file:` or `data:` URLs.
+/// Where the navigation originates. Keeping the source explicit avoids
+/// weakening content checks when trusted top-frame metadata becomes
+/// available in a future Servo release.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NavigationSource {
     /// Typed into the address bar by the user.
@@ -92,6 +95,10 @@ impl NavigationPolicy {
         };
         if !navigable {
             return NavigationDecision::Deny(NavigationPolicyError::SchemeNotAllowed(scheme));
+        }
+
+        if scheme == SchemeKind::About && (url.path() != "blank" || url.query().is_some()) {
+            return NavigationDecision::Deny(NavigationPolicyError::InternalPageNotAllowed);
         }
 
         // Reject credentials embedded in the URL.
@@ -155,9 +162,25 @@ mod tests {
             NavigationDecision::Deny(NavigationPolicyError::SchemeNotAllowed(SchemeKind::Blob))
         );
         assert_eq!(
+            policy.check_address_bar(&url("file:///C:/Windows/system.ini")),
+            NavigationDecision::Deny(NavigationPolicyError::SchemeNotAllowed(SchemeKind::File))
+        );
+        assert_eq!(
             policy.check_address_bar(&url("mailto:a@b.c")),
             NavigationDecision::Deny(NavigationPolicyError::SchemeNotAllowed(SchemeKind::Mailto))
         );
+        assert_eq!(
+            policy.check_address_bar(&url("about:config")),
+            NavigationDecision::Deny(NavigationPolicyError::InternalPageNotAllowed)
+        );
+        assert_eq!(
+            policy.check_address_bar(&url("about:blank?unexpected")),
+            NavigationDecision::Deny(NavigationPolicyError::InternalPageNotAllowed)
+        );
+        assert!(matches!(
+            policy.check_address_bar(&url("about:blank#fragment")),
+            NavigationDecision::Allow(_)
+        ));
     }
 
     #[test]

@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Phase 4 input and controls smoke test</title>
+  <style>
+    :root { font: 16px/1.45 system-ui, sans-serif; color-scheme: light dark; }
+    body { max-width: 880px; margin: 32px auto; padding: 0 24px 96px; }
+    section { border: 1px solid #8888; border-radius: 10px; margin: 18px 0; padding: 16px; }
+    label { display: block; margin: 10px 0; }
+    input[type="text"], textarea, select, [contenteditable] { width: min(100%, 620px); padding: 8px; }
+    [contenteditable] { min-height: 48px; border: 1px solid #888; }
+    #event-log { white-space: pre-wrap; min-height: 7em; background: #8882; padding: 10px; }
+    .ruler { width: 100px; height: 24px; background: #2878ff; color: white; text-align: center; }
+    button { margin: 4px 8px 4px 0; padding: 7px 12px; }
+  </style>
+</head>
+<body>
+  <h1>Phase 4 smoke test</h1>
+  <p>Right-click this page to test the browser context menu.</p>
+
+  <section>
+    <h2>Keyboard and IME</h2>
+    <label>Single-line input <input id="single" type="text" autocomplete="off"></label>
+    <label>Textarea <textarea id="multi" rows="3"></textarea></label>
+    <label>Contenteditable <div id="editable" contenteditable="true"></div></label>
+    <p>Expected test text: <code>Grüße – 日本語 – 한글</code></p>
+    <div id="event-log" aria-live="polite">Composition/input events appear here.</div>
+  </section>
+
+  <section>
+    <h2>Form controls</h2>
+    <label>Single select
+      <select id="single-select">
+        <option>Alpha</option>
+        <optgroup label="Grouped">
+          <option>Beta</option>
+          <option>Gamma</option>
+        </optgroup>
+        <option disabled>Disabled</option>
+      </select>
+    </label>
+    <label>Multiple select
+      <select id="multi-select" multiple size="4">
+        <option selected>One</option>
+        <optgroup label="Grouped">
+          <option selected>Two</option>
+          <option>Three</option>
+        </optgroup>
+      </select>
+    </label>
+    <label>Long select (200 options)
+      <select id="long-select"></select>
+    </label>
+    <label>Color <input id="color" type="color" value="#2878ff"></label>
+    <output id="control-result">Change a control to see its value.</output>
+    <label>Single file (.txt or .md)
+      <input id="single-file" type="file" accept=".txt,.md">
+    </label>
+    <label>Multiple files (.txt or .md)
+      <input id="multiple-files" type="file" accept=".txt,.md" multiple>
+    </label>
+    <button id="delayed-file-picker">Delayed picker (must stay closed)</button>
+    <button id="focus-race-file-picker">Picker after chrome focus (must stay closed)</button>
+    <output id="file-result">No file selected.</output>
+  </section>
+
+  <section>
+    <h2>Page dialogs</h2>
+    <button id="alert">Alert</button>
+    <button id="confirm">Confirm</button>
+    <button id="prompt">Prompt</button>
+    <output id="dialog-result">No dialog result yet.</output>
+  </section>
+
+  <section>
+    <h2>Zoom and new WebView</h2>
+    <p>Use Ctrl+Plus, Ctrl+Minus and Ctrl+0. This ruler is 100 CSS px wide:</p>
+    <div class="ruler">100 px</div>
+    <p><a href="about:blank" target="_blank">Open about:blank in a new tab</a></p>
+  </section>
+
+  <script>
+    const log = document.querySelector('#event-log');
+    for (const id of ['single', 'multi', 'editable']) {
+      const target = document.querySelector(`#${id}`);
+      for (const type of ['compositionstart', 'compositionupdate', 'compositionend', 'input']) {
+        target.addEventListener(type, event => {
+          const data = event.data === undefined ? '' : ` data=${JSON.stringify(event.data)}`;
+          log.textContent += `\n${id}: ${type}${data}`;
+        });
+      }
+    }
+
+    const controlResult = document.querySelector('#control-result');
+    const longSelect = document.querySelector('#long-select');
+    for (let index = 1; index <= 200; index += 1) {
+      longSelect.add(new Option(`Option ${index}`, String(index)));
+    }
+    document.querySelector('#single-select').addEventListener('change', event => {
+      controlResult.value = `single=${event.target.value}`;
+    });
+    document.querySelector('#multi-select').addEventListener('change', event => {
+      const values = [...event.target.selectedOptions].map(option => option.value);
+      controlResult.value = `multiple=${values.join(',')}`;
+    });
+    longSelect.addEventListener('change', event => {
+      controlResult.value = `long=${event.target.value}`;
+    });
+    document.querySelector('#color').addEventListener('change', event => {
+      controlResult.value = `color=${event.target.value}`;
+    });
+    const fileResult = document.querySelector('#file-result');
+    for (const id of ['single-file', 'multiple-files']) {
+      document.querySelector(`#${id}`).addEventListener('change', event => {
+        const files = [...event.target.files]
+          .map(file => `${file.name} (${file.size} bytes)`);
+        fileResult.value = `${id}=${files.join(',')}`;
+      });
+    }
+    document.querySelector('#delayed-file-picker').onclick = () => {
+      fileResult.value = 'Waiting for the user-action grant to expire…';
+      setTimeout(() => {
+        document.querySelector('#single-file').click();
+        fileResult.value = 'Delayed picker requested; no dialog should have opened.';
+      }, 2250);
+    };
+    document.querySelector('#focus-race-file-picker').onclick = () => {
+      fileResult.value = 'Focus the address bar before the picker request…';
+      setTimeout(() => {
+        document.querySelector('#single-file').click();
+        fileResult.value = 'Chrome-focus picker requested; no dialog should have opened.';
+      }, 1500);
+    };
+
+    const dialogResult = document.querySelector('#dialog-result');
+    document.querySelector('#alert').onclick = () => {
+      alert('Alert from the Phase 4 smoke page');
+      dialogResult.value = 'alert closed';
+    };
+    document.querySelector('#confirm').onclick = () => {
+      dialogResult.value = `confirm=${confirm('Confirm from the Phase 4 smoke page?')}`;
+    };
+    document.querySelector('#prompt').onclick = () => {
+      dialogResult.value = `prompt=${prompt('Enter persistent prompt text', 'draft')}`;
+    };
+  </script>
+</body>
+</html>

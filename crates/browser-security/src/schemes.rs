@@ -2,7 +2,8 @@
 //!
 //! Schemes are the first security boundary of a browser: a
 //! `javascript:` URL in the address bar is an XSS vector, a `file:`
-//! URL opened from web content leaks local files, and `data:` URLs can
+//! URL can expose local data without a trustworthy top-frame signal,
+//! and `data:` URLs can
 //! smuggle content past navigational checks. Classification is
 //! exhaustive: unknown schemes are explicitly represented instead of
 //! being silently treated as HTTP.
@@ -16,11 +17,10 @@ pub enum SchemeKind {
     Http,
     /// `https:` — preferred scheme.
     Https,
-    /// `file:` — local file access. Only allowed from user-initiated
-    /// navigation, never from web content (enforced by [`crate::navigation`]).
+    /// `file:` — local file access. Classified explicitly but denied
+    /// until the embedder can distinguish top-level and inner-frame requests.
     File,
-    /// `data:` — allowed for user-initiated navigation only when the
-    /// media type is a safe text or image type.
+    /// `data:` — classified explicitly and denied for navigation.
     Data,
     /// `about:` — internal pages (e.g. `about:blank`).
     About,
@@ -43,7 +43,7 @@ impl SchemeKind {
     /// `blob:` and `javascript:` are deliberately excluded: they are
     /// renderer-internal concepts and must never come from user input.
     pub fn is_navigable_from_address_bar(self) -> bool {
-        matches!(self, Self::Http | Self::Https | Self::File | Self::About)
+        matches!(self, Self::Http | Self::Https | Self::About)
     }
 
     /// Returns `true` for schemes that web content may navigate to.
@@ -138,7 +138,7 @@ mod tests {
     fn address_bar_navigability() {
         assert!(SchemeKind::Https.is_navigable_from_address_bar());
         assert!(SchemeKind::Http.is_navigable_from_address_bar());
-        assert!(SchemeKind::File.is_navigable_from_address_bar());
+        assert!(!SchemeKind::File.is_navigable_from_address_bar());
         assert!(SchemeKind::About.is_navigable_from_address_bar());
         assert!(!SchemeKind::Javascript.is_navigable_from_address_bar());
         assert!(!SchemeKind::Data.is_navigable_from_address_bar());

@@ -12,10 +12,15 @@
 //! with ad-hoc string manipulation: all URL handling goes through the
 //! `url` crate.
 
+#![forbid(unsafe_code)]
+
 pub mod download;
 pub mod navigation;
 pub mod schemes;
 
-pub use download::{sanitize_filename, DownloadPolicy, DownloadPolicyError};
+pub use download::{
+    sanitize_filename, DownloadPolicy, DownloadPolicyError, DownloadReceipt, SafeDownloadError,
+    SafeDownloadTarget, SafeDownloadWriter,
+};
 pub use navigation::{NavigationDecision, NavigationPolicy, NavigationPolicyError};
 pub use schemes::{classify_scheme, SchemeKind};

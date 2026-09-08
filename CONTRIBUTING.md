@@ -5,15 +5,15 @@ will read every line. Rules:
 
 ## Workflow
 
-1. Check the roadmap. Phase boundaries are real: don't start Phase 3
-   code before Phase 2 is done.
+1. Check the roadmap. Phase boundaries are real: finish the current
+   phase before starting work from a later phase.
 2. Run the quality gate before finishing any change:
 
    ```sh
    powershell -ExecutionPolicy Bypass -File tools/check.ps1
    ```
 
-   (fmt, `cargo check`, all tests, clippy — no warnings tolerated).
+   (fmt, workspace build, all tests, clippy — no warnings tolerated).
 
 3. Commit small, message like the existing history
    (`phase: what changed`). Never commit secrets or build artifacts.
@@ -29,9 +29,11 @@ will read every line. Rules:
 - **No fake security.** A feature is documented as implemented only if
   it is implemented and tested. Unimplemented things are listed as
   unimplemented (see SECURITY.md, PRIVACY.md).
-- **Threading.** Delegate callbacks run on Servo threads. They may only
-  set cells, push to the UI queue, or request redraws — never borrow
-  `RefCell`s that the main thread also uses.
+- **Threading and reentrancy.** Servo workers communicate over channels,
+  while public delegate callbacks are dispatched on the main thread
+  during `Servo::spin_event_loop()`. Queue callbacks that could re-enter
+  GUI/core borrows; lightweight main-thread state updates may be applied
+  directly.
 - **No invented APIs.** Every Servo API used must be verified against
   the vendored source or docs; note the source in the commit message
   when it wasn't obvious.
@@ -42,7 +44,10 @@ will read every line. Rules:
 - Every deny path in the policy crates needs a test.
 - `cargo test --workspace` must stay green and fast (currently < 5 s
   for the policy crates; keep it that way).
-- The binary itself is manually smoke-tested (it needs a GPU/window).
+- The binary itself is manually smoke-tested because it needs a GPU and
+  a window. For engine/window features, a documented manual smoke test
+  is currently their integration-test coverage; engine-independent
+  behavior must remain covered by automated tests.
 
 ## Build notes (Windows)
 

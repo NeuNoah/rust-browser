@@ -8,10 +8,14 @@
 //! No global state: everything lives in [`BrowserCore`], which the UI
 //! owns exclusively.
 
+#![forbid(unsafe_code)]
+
 pub mod core;
 pub mod navigation;
+pub mod search;
 pub mod tabs;
 
 pub use core::BrowserCore;
 pub use navigation::{normalize_input, NavigationCommand, NavigationError};
+pub use search::{SearchEngine, SearchError};
 pub use tabs::{CoreError, LoadState, Tab, TabId, TabManager};

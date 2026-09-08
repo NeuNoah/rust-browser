@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="author" content="Local Smoke Author">
+  <title>Reader mode smoke article</title>
+  <style>
+    body { font: 18px/1.55 system-ui, sans-serif; margin: 2rem auto; max-width: 820px; padding: 0 1rem; }
+    article { border: 1px solid #bbb; border-radius: 12px; padding: 1.5rem; }
+    output { display: block; margin-top: 1rem; padding: .75rem; background: #eee; }
+  </style>
+</head>
+<body>
+  <nav>This navigation text must not appear in Reader view.</nav>
+  <article role="main" dir="auto">
+    <h1>Reader mode smoke article</h1>
+    <p class="byline" rel="author">Local Smoke Author</p>
+    <p>
+      This local article verifies that the browser extracts readable text into a
+      native view without fetching the document a second time or rendering page HTML.
+    </p>
+    <h2>Bounded local extraction</h2>
+    <p>
+      Every returned block is treated as untrusted input. The Rust model independently
+      limits the title, author, block count, block length, and total character count.
+    </p>
+    <p>
+      Unicode sample: Grüße — 日本語 — 한국어 — مرحبا بالعالم. These scripts should
+      remain readable and must never be interpreted as markup or browser chrome.
+    </p>
+    <blockquote>
+      A reader view is a presentation feature. It is not a tracking blocker and does
+      not claim that scripts on the original document have stopped running.
+    </blockquote>
+    <h2>Scrollable content</h2>
+    <p>Paragraph one repeats enough useful prose to make the native surface scrollable while preserving comfortable line lengths and stable input routing.</p>
+    <p>Paragraph two verifies that wheel input is consumed by the egui scroll area instead of reaching the covered Servo WebView underneath it.</p>
+    <p>Paragraph three exists to exercise a longer document, predictable wrapping, and focus restoration when Reader view is closed with Escape.</p>
+    <p>Paragraph four confirms that switching tabs does not mix article state, source identity, focus, or throttling between independent WebViews.</p>
+    <p>Paragraph five provides more vertical content so the final lines cannot fit into a single ordinary desktop viewport during the smoke test.</p>
+    <p>Paragraph six makes Page Down visibly advance past the title and introductory sections in one unambiguous keyboard step.</p>
+    <p>Paragraph seven keeps the source fixture long enough that Home and End land at observably different positions on ordinary desktop windows.</p>
+    <h2>Keyboard scrolling</h2>
+    <p>Paragraph eight checks that arrow keys move only the native Reader surface while the covered document remains at its prior scroll position.</p>
+    <p>Paragraph nine checks that Page Up reverses a Page Down movement without handing the event through to the original page.</p>
+    <p>Paragraph ten checks that End reaches this final section and that Home returns to the title at the beginning of the extracted article.</p>
+    <pre>fn reader_fixture() {
+    println!("preformatted text stays text");
+}</pre>
+    <button id="covered-button">Covered page button</button>
+    <output id="covered-result">The covered page has not been clicked.</output>
+  </article>
+  <script>
+    document.querySelector('#covered-button').onclick = () => {
+      document.querySelector('#covered-result').value = 'ERROR: covered page received a click.';
+    };
+  </script>
+</body>
+</html>

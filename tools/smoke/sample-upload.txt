@@ -1,0 +1,2 @@
+Rust Browser file-picker smoke fixture.
+The page must receive this file only after an explicit native-dialog selection.

@@ -2,23 +2,30 @@
 
 Goals, current state, and the benchmark plan.
 
-## Goal
+## Goal (not yet measured)
 
-An ultra-lightweight browser: fast to start, low memory, smooth
-scrolling, minimal battery drain. The reference point is Servo's own
-`servoshell`; we aim to be comparable or better for simple browsing
-workloads.
+The intended direction is fast startup, modest memory use, smooth
+scrolling and low idle CPU use. No benchmark results exist yet, so the
+project does not currently claim to be lightweight or comparable to
+Servo's `servoshell`.
 
-## Current state (Phase 1)
+## Current state (through the Phase 4 work in progress)
 
-- The policy crates are pure functions: zero allocation concerns, no
-  I/O in the request path except the pipeline evaluation itself.
+- The policy crates perform no filesystem or network I/O during pipeline
+  evaluation. They do perform normal URL/string work; throughput and
+  allocation cost have not been measured.
 - The pipeline short-circuits on the first block; typical evaluation is
   a handful of string comparisons per request.
 - The built-in tracker list is embedded at compile time
   (`include_str!`) and loaded once; matching is exact/prefix-based,
   no regex at runtime.
 - GUI cost is egui's: one `PaintCallback` (GL blit) per frame.
+- The event loop polls continuously only while the active tab is
+  animating. Animating hidden tabs do not force busy polling; scheduled
+  egui repaints use `WaitUntil`, otherwise the loop waits.
+- Servo's temporary client/cache storage can touch disk even though the
+  embedder has no persistent-history feature; its startup and I/O cost
+  has not been measured.
 
 ## Deliberate non-goals for now
 
@@ -41,7 +48,7 @@ machine (Windows 10 Pro, Ryzen 5 PRO 5650GE, 6C/12T, 8 GB RAM).
 4. **Pipeline throughput** — requests/sec through `RequestPipeline`
    with a realistic URL mix (hit/miss tracker ratio).
 5. **Tracker block latency** — added latency per request from pipeline
-   evaluation (should be sub-microsecond).
+   evaluation; establish a target only after a baseline measurement.
 
 Results are recorded in `PERFORMANCE.md` with the date, machine, and
 build profile so trends are visible.

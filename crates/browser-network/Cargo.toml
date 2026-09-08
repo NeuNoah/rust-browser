@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+adblock.workspace = true
 browser-privacy.workspace = true
 browser-security.workspace = true
 thiserror.workspace = true

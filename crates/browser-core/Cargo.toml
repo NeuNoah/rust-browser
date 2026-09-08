@@ -6,9 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-browser-network.workspace = true
 browser-security.workspace = true
 thiserror.workspace = true
 url.workspace = true
-
-[dev-dependencies]

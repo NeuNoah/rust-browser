@@ -15,15 +15,16 @@
 //! in a later phase; this engine stays as the lightweight first layer
 //! that works even when filter lists are unavailable or stale.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use thiserror::Error;
-use url::Url;
+use url::{Host, Url};
 
 /// Version of the built-in tracker list. Bump when the embedded list
 /// changes; never change rules without bumping.
-pub const TRACKER_LIST_VERSION: u32 = 1;
+pub const TRACKER_LIST_VERSION: u32 = 3;
 
 /// One parsed tracker rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,7 +53,7 @@ impl TrackerRule {
         let (kind, rest) = line
             .split_once(':')
             .ok_or_else(|| TrackerEngineError::MalformedRule(line.to_string()))?;
-        let rule = rest.trim().to_ascii_lowercase();
+        let mut rule = rest.trim().to_ascii_lowercase();
         if rule.is_empty() {
             return Err(TrackerEngineError::MalformedRule(line.to_string()));
         }
@@ -65,11 +66,23 @@ impl TrackerRule {
                 )));
             }
         };
-        // Validate host rules so garbage can't silently match nothing.
-        if kind == TrackerRuleKind::Host && rule.contains('/') {
-            return Err(TrackerEngineError::MalformedRule(line.to_string()));
+        // Canonicalize host rules with the same parser used for request
+        // URLs, so malformed rules cannot silently match nothing.
+        if kind == TrackerRuleKind::Host {
+            let candidate = rule.trim_end_matches('.');
+            rule = Host::parse(candidate)
+                .map(|host| host.to_string())
+                .map_err(|_| TrackerEngineError::MalformedRule(line.to_string()))?;
         }
         Ok(Some(Self { kind, rule }))
+    }
+
+    pub fn kind(&self) -> TrackerRuleKind {
+        self.kind
+    }
+
+    pub fn text(&self) -> &str {
+        &self.rule
     }
 }
 
@@ -185,29 +198,39 @@ impl TrackerEngine {
         }
     }
 
-    /// Match `url`. The initiator tells us whether this request is
-    /// third-party (a different eTLD+1) — third-party trackers are the
-    /// primary target; first-party requests are never blocked by host
-    /// rules alone.
+    /// Match `url` against host and URL-pattern rules. Whether a
+    /// top-level request is exempt is decided by the request-pipeline
+    /// layer, which has the necessary request context.
     pub fn check(&self, url: &Url) -> TrackerDecision {
-        let host = match url.host_str() {
-            Some(host) => host.to_ascii_lowercase(),
+        let host = match url.host_str().map(|host| host.trim_end_matches('.')) {
+            Some(host) => {
+                if host.bytes().any(|byte| byte.is_ascii_uppercase()) {
+                    Cow::Owned(host.to_ascii_lowercase())
+                } else {
+                    Cow::Borrowed(host)
+                }
+            }
             None => return TrackerDecision::Allowed,
         };
 
-        if self
-            .hosts
-            .iter()
-            .any(|rule| host == *rule || host.ends_with(&format!(".{rule}")))
-        {
+        let matching_host = std::iter::once(host.as_ref())
+            .chain(
+                host.match_indices('.')
+                    .map(|(separator, _)| &host[separator + 1..]),
+            )
+            .find(|candidate| self.hosts.contains(*candidate));
+        if let Some(rule) = matching_host {
             return TrackerDecision::Blocked(TrackerMatch {
                 rule: TrackerRule {
                     kind: TrackerRuleKind::Host,
-                    rule: host.clone(),
+                    rule: rule.to_owned(),
                 },
             });
         }
 
+        if self.patterns.is_empty() {
+            return TrackerDecision::Allowed;
+        }
         let full = url.as_str().to_ascii_lowercase();
         if let Some(rule) = self
             .patterns
@@ -258,6 +281,8 @@ mod tests {
         assert!(TrackerEngine::from_rules("not-a-rule", 1).is_err());
         assert!(TrackerEngine::from_rules("host:", 1).is_err());
         assert!(TrackerEngine::from_rules("host: a/b", 1).is_err());
+        assert!(TrackerEngine::from_rules("host: not a host", 1).is_err());
+        assert!(TrackerEngine::from_rules("host: example.com:443", 1).is_err());
         assert!(TrackerEngine::from_rules("bogus: x", 1).is_err());
     }
 
@@ -273,10 +298,15 @@ mod tests {
                 }
             })
         );
-        assert!(matches!(
+        assert_eq!(
             engine.check(&url("https://sub.tracker.example.com/collect")),
-            TrackerDecision::Blocked(_)
-        ));
+            TrackerDecision::Blocked(TrackerMatch {
+                rule: TrackerRule {
+                    kind: TrackerRuleKind::Host,
+                    rule: "tracker.example.com".into(),
+                }
+            })
+        );
         assert!(matches!(
             engine.check(&url("https://www.example.com/")),
             TrackerDecision::Allowed
@@ -303,9 +333,22 @@ mod tests {
 
     #[test]
     fn rules_are_case_insensitive() {
-        let engine = TrackerEngine::from_rules("HOST: TRACKER.example.com\n", 1).unwrap();
+        let engine = TrackerEngine::from_rules("HOST: TRACKER.example.com.\n", 1).unwrap();
         assert!(matches!(
             engine.check(&url("https://TRACKER.EXAMPLE.COM/x")),
+            TrackerDecision::Blocked(_)
+        ));
+    }
+
+    #[test]
+    fn host_rules_match_trailing_dot_urls() {
+        let engine = TrackerEngine::from_rules("host: tracker.example.com\n", 1).unwrap();
+        assert!(matches!(
+            engine.check(&url("https://tracker.example.com./x")),
+            TrackerDecision::Blocked(_)
+        ));
+        assert!(matches!(
+            engine.check(&url("https://sub.tracker.example.com./x")),
             TrackerDecision::Blocked(_)
         ));
     }
@@ -318,6 +361,11 @@ mod tests {
         // The builtin list must contain at least one well-known tracker
         // to be self-verifying (see resources/filterlists/trackers.txt).
         assert!(engine.hosts.len() >= 10, "builtin list too small");
+        assert_eq!(engine.info().pattern_rules, 0);
+        assert!(matches!(
+            engine.check(&url("https://shop.example/pixel-art.png")),
+            TrackerDecision::Allowed
+        ));
     }
 
     #[test]

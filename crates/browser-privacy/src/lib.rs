@@ -14,6 +14,8 @@
 //! Nothing in this crate performs network I/O or blocks decision
 //! making on external services.
 
+#![forbid(unsafe_code)]
+
 pub mod cookies;
 pub mod fingerprinting;
 pub mod trackers;

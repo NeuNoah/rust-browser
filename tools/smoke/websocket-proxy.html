@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>WebSocket proxy smoke test</title>
+  <style>
+    body { font: 18px/1.5 system-ui, sans-serif; margin: 3rem auto; max-width: 760px; padding: 0 1rem; }
+    output { display: block; margin: 1.5rem 0; padding: 1rem; border: 2px solid currentColor; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <h1>WebSocket proxy smoke test</h1>
+  <p>The page opens <code>ws://site.test:8765/proxy-smoke</code>.</p>
+  <output id="result">WebSocket request: WAITING</output>
+  <script>
+    const result = document.querySelector('#result');
+    const socket = new WebSocket('ws://site.test:8765/proxy-smoke');
+    socket.onopen = () => { result.value = 'WebSocket request: OPEN'; };
+    socket.onerror = () => { result.value = 'WebSocket request: ERROR'; };
+  </script>
+</body>
+</html>

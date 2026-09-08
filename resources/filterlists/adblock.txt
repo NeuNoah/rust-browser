@@ -1,0 +1,17 @@
+[Adblock Plus 2.0]
+! Title: Rust Browser built-in ad protection
+! Version: 1
+! This deliberately small, local seed list proves the blocking pipeline.
+! User-selected subscriptions and their update UX are a separate roadmap step.
+||2mdn.net^$third-party
+||adnxs.com^$third-party
+||ads.example^$third-party
+||adsrvr.org^$third-party
+||amazon-adsystem.com^$third-party
+||criteo.com^$third-party
+||doubleclick.net^$third-party
+||googleadservices.com^$third-party
+||googlesyndication.com^$third-party
+||outbrain.com^$third-party
+||taboola.com^$third-party
+@@||ads.example/allowed.js$script,domain=shop.example

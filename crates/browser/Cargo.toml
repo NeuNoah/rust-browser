@@ -24,4 +24,5 @@ rfd = "0.17"
 rustls.workspace = true
 servo.workspace = true
 url.workspace = true
+ureq.workspace = true
 winit.workspace = true

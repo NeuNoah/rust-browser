@@ -12,6 +12,7 @@ mod gui;
 mod ime;
 mod proxy;
 mod reader;
+mod subscriptions;
 mod waker;
 
 use std::error::Error;

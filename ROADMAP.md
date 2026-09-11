@@ -150,7 +150,15 @@ fingerprint scope and reproducible algorithm are recorded in
       122 tests, workspace build, formatting and all-target Clippy. The
       44-file automated source/test fingerprint is
       `1acca381658144f2daf3a59a2e1cabc5c9bc4e1321c5c85f497ff655a06ed0fc`
-- [ ] User-selected subscription list catalog and bounded, atomic update UX
+- [x] User-selected EasyList/EasyPrivacy catalog with explicit session-only
+      updates: HTTPS-only bounded downloads, strict ABP validation, worker-
+      thread compilation and an all-or-nothing live-pipeline swap; failures
+      retain the prior rules and an explicit startup proxy never falls back
+      to a direct subscription request. Redirects are disabled, and remote
+      exceptions or `$badfilter` rules cannot weaken the separately enforced
+      embedded seed. The full quality gate passed on 2026-09-11 with 140 tests;
+      an additional opt-in live test downloaded,
+      validated and jointly compiled both official lists successfully
 - [x] Per-site blocking stats in the toolbar: session-only tracker/ad
       counts are keyed by the trusted committed host, exclude unrelated
       security-policy blocks and global unattributed requests, and retain

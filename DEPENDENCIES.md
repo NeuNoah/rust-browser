@@ -17,6 +17,7 @@ release readiness; it is not part of the current quality gate.
 | egui-winit | 0.36 | MIT/Apache-2.0 | egui↔winit event plumbing. |
 | rustls | 0.23 | Apache-2.0/ISC | TLS (with `aws-lc-rs` provider; installed once at startup). |
 | url | 2.5 | MIT/Apache-2.0 | URL parsing everywhere; also Servo's own URL type. |
+| ureq | 3.4 | MIT/Apache-2.0 | Blocking HTTPS client used only on a worker thread for explicit, bounded filter-subscription updates. Default features are disabled; it uses the process rustls provider and bundled WebPKI roots without ambient proxy discovery or redirects. |
 | thiserror | 2 | MIT/Apache-2.0 | Error enums in the policy crates. |
 | log | 0.4 | MIT/Apache-2.0 | Logging facade used by the embedder. Servo supplies the logger implementation. |
 | adblock | 0.13.3 | MPL-2.0 | Brave's ABP-compatible network-filter engine. Default features are disabled to exclude its non-`Sync` single-thread mode; only embedded domain resolution and full regex handling are enabled. |
@@ -30,6 +31,7 @@ release readiness; it is not part of the current quality gate.
 | euclid 0.22 | MPL-2.0 | Geometry types matching Servo's (`Scale`, `Size2D`, `Rect`) for the blit. |
 | keyboard-types 0.8.3 | MIT/Apache-2.0 | W3C-compatible keyboard and IME event values forwarded to Servo. |
 | rfd 0.17 | MIT | Window-parented native single/multiple file-open dialogs. Page-provided filters are sanitized and bounded before use. |
+| ureq 3.4 | MIT/Apache-2.0 | Fixed-catalog EasyList/EasyPrivacy fetches; HTTPS and proxy handling plus zero redirects, timeout, header and body limits are configured explicitly. |
 | browser-core | — | adds `browser-security` (path dep). |
 | browser-network | — | adds `browser-security`, `browser-privacy` (path deps) and Brave `adblock`. |
 | browser-privacy | — | none beyond `url`/`thiserror`. |

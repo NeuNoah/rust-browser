@@ -48,6 +48,7 @@ use crate::proxy::StartupProxy;
 use crate::reader::{
     article_from_js, reader_url_is_eligible, ReaderArticle, ReaderError, EXTRACTION_SCRIPT,
 };
+use crate::subscriptions::{CatalogEntry, CompiledUpdate, SubscriptionId, UpdateStatus, CATALOG};
 use crate::waker::EventLoopWaker;
 
 const USER_GESTURE_GRANT_LIFETIME: Duration = Duration::from_secs(2);
@@ -104,11 +105,14 @@ impl UserActionGrant {
 }
 
 /// Events winit delivers to our application.
-pub enum AppEvent {
+pub(crate) enum AppEvent {
     /// Servo woke the event loop up; drain its message queues.
     Wake,
     /// egui requested another frame, immediately or after a delay.
     Repaint { delay: Duration, pass: u64 },
+    /// A complete subscription set was downloaded, checked and compiled away
+    /// from the UI thread. Errors retain the currently active pipeline.
+    SubscriptionUpdateFinished(Result<CompiledUpdate, String>),
 }
 
 /// One Servo [`WebView`] owned by a browser tab. The order of this
@@ -248,7 +252,7 @@ fn discard_pending_file_picker(
 /// Applies the same request policy to HTTP(S) loads that Servo cannot
 /// associate with a WebView (for example service-worker traffic).
 struct GlobalRequestDelegate {
-    pipeline: Rc<RequestPipeline>,
+    pipeline: Rc<RefCell<RequestPipeline>>,
     proxy_enabled: bool,
 }
 
@@ -275,9 +279,8 @@ impl ServoDelegate for GlobalRequestDelegate {
             // not expose the ambiguous value as a trusted exemption.
             false,
         );
-        if let browser_network::PipelineDecision::Block { layer, reason } =
-            self.pipeline.evaluate(&context)
-        {
+        let decision = self.pipeline.borrow().evaluate(&context);
+        if let browser_network::PipelineDecision::Block { layer, reason } = decision {
             debug!(
                 "Blocked global request {} ({layer}: {reason})",
                 url_identity(&url)
@@ -297,8 +300,10 @@ pub struct AppState {
     pub(crate) webviews: RefCell<Vec<TabWebView>>,
     gui: RefCell<Gui>,
     core: RefCell<BrowserCore>,
-    pipeline: Rc<RequestPipeline>,
+    pipeline: Rc<RefCell<RequestPipeline>>,
+    event_proxy: EventLoopProxy<AppEvent>,
     proxy_enabled: bool,
+    startup_proxy: Option<StartupProxy>,
     clipboard: Rc<crate::clipboard::SystemClipboard>,
     active_tab: Cell<Option<TabId>>,
     /// Per-tab history availability, reported by the engine; keyed by
@@ -353,6 +358,11 @@ pub struct AppState {
     /// Session-only counts keyed by the trusted committed top-level host.
     /// The bounded store never retains request URLs or persists history.
     blocking_stats: RefCell<BlockingStatsStore>,
+    /// Catalog choices, active only for this process. A background update
+    /// never mutates these or the request pipeline incrementally.
+    subscription_selection: RefCell<HashSet<SubscriptionId>>,
+    subscription_active: RefCell<Vec<SubscriptionId>>,
+    subscription_status: RefCell<UpdateStatus>,
     /// Per-tab system-IME targets reported by Servo. Composition state
     /// is separate: a focused text field is not necessarily composing.
     page_ime_controls: RefCell<HashMap<TabId, PageImeControl>>,
@@ -432,7 +442,7 @@ impl AppState {
         initial_proxy: Option<StartupProxy>,
     ) -> Result<Rc<Self>, String> {
         let waker: Box<dyn servo::EventLoopWaker> = Box::new(EventLoopWaker::new(proxy.clone()));
-        let pipeline = Rc::new(default_pipeline(TrackerEngine::builtin()));
+        let pipeline = Rc::new(RefCell::new(default_pipeline(TrackerEngine::builtin())));
         let mut tracker_override_map = HashMap::new();
         for input in initial_tracker_overrides {
             let host = normalize_site_host(&input)
@@ -486,7 +496,7 @@ impl AppState {
 
         let rendering_context = Rc::new(window_rendering_context.offscreen_context(window_size));
 
-        let gui = Gui::new(event_loop, &window, &rendering_context, proxy)?;
+        let gui = Gui::new(event_loop, &window, &rendering_context, proxy.clone())?;
         let clipboard = Rc::new(crate::clipboard::SystemClipboard::new());
         let state = Rc::new(Self {
             window: window.clone(),
@@ -497,7 +507,9 @@ impl AppState {
             gui: RefCell::new(gui),
             core: RefCell::new(BrowserCore::new()),
             pipeline,
+            event_proxy: proxy,
             proxy_enabled,
+            startup_proxy: initial_proxy,
             clipboard,
             active_tab: Cell::new(None),
             tab_history: RefCell::new(HashMap::new()),
@@ -527,6 +539,9 @@ impl AppState {
             start_page: RefCell::new(Url::parse("about:blank").expect("static URL")),
             tracker_overrides,
             blocking_stats: RefCell::new(BlockingStatsStore::new(MAX_BLOCKING_STATS_SITES)),
+            subscription_selection: RefCell::new(HashSet::new()),
+            subscription_active: RefCell::new(Vec::new()),
+            subscription_status: RefCell::new(UpdateStatus::Idle),
             page_ime_controls: RefCell::new(HashMap::new()),
             ime_composing_tab: Cell::new(None),
             ui_ime_composing: Cell::new(false),
@@ -2296,10 +2311,11 @@ impl WebViewDelegate for AppState {
         let allow_trackers =
             trackers_allowed_for_site(&self.tracker_overrides.borrow(), site_host.as_deref());
 
-        match self
+        let decision = self
             .pipeline
-            .evaluate_with_tracker_override(&context, allow_trackers)
-        {
+            .borrow()
+            .evaluate_with_tracker_override(&context, allow_trackers);
+        match decision {
             browser_network::PipelineDecision::Allow => {}
             browser_network::PipelineDecision::Block { layer, reason } => {
                 debug!("Blocked {} ({layer}: {reason})", url_identity(&url));
@@ -2385,6 +2401,93 @@ impl AppState {
             .collect();
         entries.sort();
         entries
+    }
+
+    pub(crate) fn subscription_catalog(&self) -> Vec<(CatalogEntry, bool)> {
+        let selected = self.subscription_selection.borrow();
+        CATALOG
+            .iter()
+            .copied()
+            .map(|entry| (entry, selected.contains(&entry.id)))
+            .collect()
+    }
+
+    pub(crate) fn set_subscription_selected(&self, id: SubscriptionId, selected: bool) {
+        let mut selection = self.subscription_selection.borrow_mut();
+        if selected {
+            selection.insert(id);
+        } else {
+            selection.remove(&id);
+        }
+    }
+
+    pub(crate) fn subscription_status(&self) -> UpdateStatus {
+        self.subscription_status.borrow().clone()
+    }
+
+    pub(crate) fn active_subscriptions(&self) -> Vec<SubscriptionId> {
+        self.subscription_active.borrow().clone()
+    }
+
+    pub(crate) fn apply_subscription_selection(&self) -> Result<(), String> {
+        if self.subscription_status.borrow().is_updating() {
+            return Err("A filter-list update is already running".to_owned());
+        }
+        let selected: Vec<_> = CATALOG
+            .iter()
+            .map(|entry| entry.id)
+            .filter(|id| self.subscription_selection.borrow().contains(id))
+            .collect();
+        *self.subscription_status.borrow_mut() = UpdateStatus::Updating;
+        self.window.request_redraw();
+
+        let event_proxy = self.event_proxy.clone();
+        let startup_proxy = self.startup_proxy.clone();
+        let spawn = std::thread::Builder::new()
+            .name("filter-list-update".to_owned())
+            .spawn(move || {
+                let result = std::panic::catch_unwind(|| {
+                    crate::subscriptions::compile_selected(selected, startup_proxy.as_ref())
+                })
+                .unwrap_or_else(|_| {
+                    Err("Filter-list processing stopped unexpectedly; previous filters remain active"
+                        .to_owned())
+                });
+                let _ = event_proxy.send_event(AppEvent::SubscriptionUpdateFinished(result));
+            });
+        if let Err(error) = spawn {
+            let message = format!("Could not start filter-list update: {error}");
+            *self.subscription_status.borrow_mut() = UpdateStatus::Failed(message.clone());
+            return Err(message);
+        }
+        Ok(())
+    }
+
+    fn finish_subscription_update(&self, result: Result<CompiledUpdate, String>) {
+        match result {
+            Ok(update) => {
+                let CompiledUpdate {
+                    selected,
+                    pipeline,
+                    total_bytes,
+                    total_rules,
+                } = update;
+                *self.pipeline.borrow_mut() = pipeline;
+                *self.subscription_active.borrow_mut() = selected.clone();
+                *self.subscription_status.borrow_mut() = UpdateStatus::Applied {
+                    selected,
+                    total_bytes,
+                    total_rules,
+                };
+                info!("Applied validated filter subscription update");
+            }
+            Err(error) => {
+                warn!("Filter subscription update failed: {error}");
+                *self.subscription_status.borrow_mut() = UpdateStatus::Failed(error);
+            }
+        }
+        self.needs_repaint.set(true);
+        self.window.request_redraw();
     }
 
     pub(crate) fn authorize_context_menu_action(&self, tab: TabId, action: ContextMenuAction) {
@@ -2815,6 +2918,9 @@ impl ApplicationHandler<AppEvent> for App {
                         state.gui_repaint_at.set(Some(deadline));
                     }
                 }
+            }
+            AppEvent::SubscriptionUpdateFinished(result) => {
+                state.finish_subscription_update(result);
             }
         }
     }

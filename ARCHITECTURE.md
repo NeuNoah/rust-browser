@@ -96,13 +96,28 @@ attach the WebView's committed main-page URL as trusted
 `top_level_url`. Referrer metadata remains untrusted and may be absent.
 A per-site tracker override is selected only from that trusted main-page
 URL. It can skip only the structurally registered `TrackerLayer`; the
-later `AdblockLayer` is still evaluated. The adblock engine is compiled
-once from complete local lists and is never mutated during request
-handling. Loads without a WebView (including service-worker traffic) use a
-`ServoDelegate` backed by the same pipeline, but have neither a trusted
-top-level URL nor a per-site tracker exception. The private-network
-layer recognizes literal/local URL hosts; post-DNS enforcement is still
-needed to cover DNS rebinding.
+later `AdblockLayer` is still evaluated. The embedded seed is evaluated in
+its own mandatory engine, while optional catalog subscriptions share a
+separate engine. Remote exceptions and `$badfilter` rules therefore cannot
+relax the embedded protection. Subscriptions are downloaded and validated
+on explicit user action, then a complete replacement pipeline is compiled
+off the UI thread. The shared pipeline is swapped only after the whole
+selection succeeds; request handling never observes a partial update and
+failure retains the previous value. Loads without a WebView (including
+service-worker traffic) use a `ServoDelegate` backed by that same current
+pipeline, but have neither a trusted top-level URL nor a per-site tracker
+exception. The private-network layer recognizes literal/local URL hosts;
+post-DNS enforcement is still needed to cover DNS rebinding.
+
+The subscription downloader is a fixed two-entry catalog, not a general
+URL fetcher. It allows HTTPS only, follows no redirects, rejects every
+non-success response, has a 30-second whole-call timeout, caps response
+headers at 32 KiB and each body at 4 MiB, requires plain UTF-8 ABP text,
+and bounds line length and rule count before compilation. It never runs
+automatically or persists list contents. When a startup proxy is configured,
+updates are routed through it without a direct fallback; bypass entries are
+deliberately not applied by this separate client, which fails closed rather
+than leaking.
 
 Tracker- and ad-layer blocks associated with a WebView increment a
 bounded `BlockingStatsStore` in `browser-core`, keyed only by the

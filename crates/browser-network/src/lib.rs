@@ -32,8 +32,9 @@ pub mod pipeline;
 pub mod resource_type;
 
 pub use layers::{
-    default_pipeline, AdblockLayer, MixedContentLayer, PrivateNetworkLayer, SchemeValidationLayer,
-    TrackerLayer, ADBLOCK_LAYER_NAME, TRACKER_LAYER_NAME,
+    default_pipeline, default_pipeline_with_adblock_lists, AdblockLayer, MixedContentLayer,
+    PrivateNetworkLayer, SchemeValidationLayer, TrackerLayer, ADBLOCK_LAYER_NAME,
+    TRACKER_LAYER_NAME,
 };
 pub use pipeline::{
     block_reason, Layer, LayerOutcome, PipelineDecision, RequestContext, RequestPipeline,

@@ -24,6 +24,7 @@ use browser_core::SearchEngine;
 
 use crate::app::{AppEvent, AppState, ReaderButtonState, ReaderView};
 use crate::reader::{ReaderBlockKind, ReaderDirection};
+use crate::subscriptions::UpdateStatus;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ReaderScrollCommand {
@@ -771,6 +772,7 @@ impl Gui {
         if let Some(window_response) = egui::Window::new("Settings")
             .open(&mut open)
             .default_width(360.0)
+            .vscroll(true)
             .show(ui.ctx(), |ui| {
                 ui.heading("Start page");
                 ui.horizontal(|ui| {
@@ -821,6 +823,94 @@ impl Gui {
                     "Startup only: --proxy http://host:port, optionally with \
                      --proxy-bypass host1,host2. Runtime changes are not supported by Servo 0.5.",
                 );
+
+                ui.separator();
+                ui.heading("Ad & tracking filter lists");
+                ui.label(
+                    "Optional, session-only subscriptions. Nothing is downloaded until you \
+                     apply the selection. The embedded protection list always remains active.",
+                );
+                let status = state.subscription_status();
+                let updating = status.is_updating();
+                let mut selected_ids = Vec::new();
+                for (entry, selected) in state.subscription_catalog() {
+                    let mut selected = selected;
+                    ui.horizontal(|ui| {
+                        if ui
+                            .add_enabled(!updating, egui::Checkbox::new(&mut selected, entry.name))
+                            .changed()
+                        {
+                            state.set_subscription_selected(entry.id, selected);
+                        }
+                        ui.label(entry.description);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.small(format!("License: {}", entry.license));
+                        ui.small("Source: easylist.to")
+                            .on_hover_text(format!("{}\n{}", entry.homepage, entry.url));
+                    });
+                    if selected {
+                        selected_ids.push(entry.id);
+                    }
+                }
+
+                let active_ids = state.active_subscriptions();
+                let selection_changed = selected_ids != active_ids;
+                let can_apply = !updating && (!selected_ids.is_empty() || selection_changed);
+                if ui
+                    .add_enabled(can_apply, egui::Button::new("Apply / update lists"))
+                    .clicked()
+                {
+                    if let Err(error) = state.apply_subscription_selection() {
+                        draft.message = Some((false, error));
+                    }
+                }
+                match status {
+                    UpdateStatus::Idle => {
+                        ui.label("Only the embedded protection list is active.");
+                    }
+                    UpdateStatus::Updating => {
+                        ui.spinner();
+                        ui.label(
+                            "Downloading and checking lists; current protection stays active.",
+                        );
+                    }
+                    UpdateStatus::Applied {
+                        selected,
+                        total_bytes,
+                        total_rules,
+                    } if selected.is_empty() => {
+                        ui.colored_label(
+                            egui::Color32::LIGHT_GREEN,
+                            "External lists disabled; embedded protection remains active.",
+                        );
+                        debug_assert_eq!(total_bytes, 0);
+                        debug_assert_eq!(total_rules, 0);
+                    }
+                    UpdateStatus::Applied {
+                        selected,
+                        total_bytes,
+                        total_rules,
+                    } => {
+                        ui.colored_label(
+                            egui::Color32::LIGHT_GREEN,
+                            format!(
+                                "{} list(s) active: {total_rules} rules, {:.1} MiB checked",
+                                selected.len(),
+                                total_bytes as f64 / (1024.0 * 1024.0)
+                            ),
+                        );
+                    }
+                    UpdateStatus::Failed(error) => {
+                        ui.colored_label(
+                            egui::Color32::LIGHT_RED,
+                            format!("Update failed; previous filters remain active: {error}"),
+                        );
+                    }
+                }
+                if selection_changed && !updating {
+                    ui.label("The selection has unapplied changes.");
+                }
 
                 ui.separator();
                 ui.heading("Per-site tracker override");

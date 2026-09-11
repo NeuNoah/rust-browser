@@ -7,8 +7,9 @@ are planned but not implemented are listed as such.
 ## Privacy properties (implemented)
 
 - **No telemetry.** The binary performs no network communication except
-  what the user's pages request.
-- **No accounts, no sync, no remote configuration.**
+  what the user's pages request and filter-list downloads the user
+  explicitly starts in Settings.
+- **No accounts, no sync, no automatic remote configuration.**
 - **Third-party tracker blocking by default.** `browser-privacy` ships a
   curated host list (`resources/filterlists/trackers.txt`), compiled
   into the binary. Matching third-party requests are blocked as empty
@@ -26,13 +27,19 @@ are planned but not implemented are listed as such.
     sites and first-party routes usable without trusting Servo's
     ambiguous document/main-frame flag. An explicit override can also
     allow matching third-party hosts; global loads get neither exception.
-- **Local ad-filter engine.** Brave's `adblock` crate evaluates
-  ABP-compatible network rules from a small seed list compiled into the
-  binary. It performs no subscription fetch or background update. A
-  per-site tracker exception cannot skip this separate layer. The toolbar
-  reports tracker and ad blocks for the committed top-level host. Counts
-  are session-only, retain no request URLs, exclude unrelated security
-  blocks and global unattributed traffic, and are capped at 256 sites.
+- **Local ad-filter engine with explicit subscriptions.** Brave's
+  `adblock` crate evaluates ABP-compatible network rules from a small seed
+  list compiled into the binary. Settings offers a fixed EasyList and
+  EasyPrivacy catalog; neither is selected or downloaded by default. A
+  user-started update is HTTPS-only, bounded and validated, and becomes
+  active only after every selected list compiles. There is no automatic
+  refresh, redirect following, persistence, custom URL input or partial
+  replacement. Optional rules cannot relax the independently evaluated
+  embedded seed, and a per-site tracker exception cannot skip this separate
+  layer. The toolbar reports
+  tracker and ad blocks for the committed top-level host. Counts are
+  session-only, retain no request URLs, exclude unrelated security blocks
+  and global unattributed traffic, and are capped at 256 sites.
 - **HTTPS-first input.** Typing `example.com` never produces a plaintext
   first load; bare hosts always complete to `https://`.
 - **Mixed-content blocking** (HTTP subresources on HTTPS pages).
@@ -51,7 +58,10 @@ are planned but not implemented are listed as such.
   does not fall back to a direct request. Because Servo 0.5 sends a
   default-port HTTP destination to port 443 through its tunnel connector,
   the embedder blocks that case before networking; WebSocket traffic is
-  not claimed to use the proxy.
+  not claimed to use the proxy. Explicit filter-list updates also use the
+  configured endpoint with no direct fallback. This separate client does
+  not honor bypass entries, preferring a failed update over an accidental
+  direct catalog request.
 - **Local Reader view.** Reader extraction uses the document already
   loaded in the active WebView and makes no second network request. Only
   bounded text is copied into the native view. The original page remains
@@ -79,9 +89,9 @@ are planned but not implemented are listed as such.
 
 ## Data the browser itself stores
 
-- The embedder does not create a durable history, settings or tracker-
-  override file. Per-site blocking counts are likewise session-only and
-  bounded; none of these values are persisted.
+- The embedder does not create a durable history, settings, tracker-
+  override or subscription file. Filter-list selections and downloaded
+  contents, like bounded per-site counts, exist only for the session.
 - Servo is started with `temporary_storage = true`, but its client and
   cache-storage implementations can still create temporary directories
   and SQLite/files on disk. Normal shutdown should remove temporary
@@ -113,6 +123,10 @@ are planned but not implemented are listed as such.
 4. The page's scripts run locally in Servo.
 5. If Reader view is requested, a fixed local evaluator derives bounded
    text from that existing document; no additional page fetch occurs.
+6. If the user explicitly applies filter subscriptions, the fixed catalog
+   URLs are fetched directly over HTTPS without following redirects, or
+   through the explicit startup proxy when present. Checked lists replace the
+   current in-memory pipeline as one complete set; failure keeps the old set.
 
 ## Planned (not yet implemented — do not claim otherwise)
 
@@ -123,8 +137,8 @@ are planned but not implemented are listed as such.
   protection levels as active.
 - **Cookie store / site data management** (Servo exposes
   `SiteDataManager` for this).
-- **User-selected adblock subscriptions and updates**, beyond the small
-  embedded seed list. No automatic remote list fetch is implemented.
+- **Automatic subscription refresh.** Current external filter-list updates
+  are explicit, session-only actions; no timer or persistent cache exists.
 - **Canvas/WebGL fingerprinting defense** and canvas-read-back
   blocking.
 - **Referrer trimming** (default referrer policy) at the embedder level.

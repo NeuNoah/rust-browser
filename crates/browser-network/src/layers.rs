@@ -111,7 +111,7 @@ impl Layer for TrackerLayer {
 /// subscription therefore means constructing a replacement pipeline,
 /// never mutating request-time state.
 pub struct AdblockLayer {
-    engine: AdblockEngine,
+    engines: Vec<AdblockEngine>,
 }
 
 impl AdblockLayer {
@@ -125,6 +125,24 @@ impl AdblockLayer {
     /// rules are retained because cosmetic filtering is not exposed by
     /// Servo's resource callback used by this pipeline.
     pub fn from_filter_lists<'a>(lists: impl IntoIterator<Item = &'a str>) -> Self {
+        Self {
+            engines: vec![Self::compile_filter_lists(lists)],
+        }
+    }
+
+    /// Keep optional remote policy in a separate precedence domain. Remote
+    /// exceptions and `$badfilter` rules may modify the selected subscriptions,
+    /// but can never relax the browser's embedded protection.
+    fn with_subscriptions<'a>(subscription_lists: impl IntoIterator<Item = &'a str>) -> Self {
+        let mut subscription_lists = subscription_lists.into_iter().peekable();
+        let mut engines = vec![Self::compile_filter_lists([BUILTIN_ADBLOCK_LIST])];
+        if subscription_lists.peek().is_some() {
+            engines.push(Self::compile_filter_lists(subscription_lists));
+        }
+        Self { engines }
+    }
+
+    fn compile_filter_lists<'a>(lists: impl IntoIterator<Item = &'a str>) -> AdblockEngine {
         let mut filter_set = FilterSet::new(false);
         let options = ParseOptions {
             rule_types: RuleTypes::NetworkOnly,
@@ -133,9 +151,7 @@ impl AdblockLayer {
         for list in lists {
             filter_set.add_filter_list(list.to_owned(), options);
         }
-        Self {
-            engine: AdblockEngine::new_with_filter_set(filter_set),
-        }
+        AdblockEngine::new_with_filter_set(filter_set)
     }
 
     fn request_type(context: &RequestContext) -> &'static str {
@@ -186,7 +202,11 @@ impl Layer for AdblockLayer {
             return LayerOutcome::Pass;
         };
 
-        if self.engine.check_network_request(&request).should_block() {
+        if self
+            .engines
+            .iter()
+            .any(|engine| engine.check_network_request(&request).should_block())
+        {
             LayerOutcome::Block("request matches an ad-blocking rule")
         } else {
             LayerOutcome::Pass
@@ -324,6 +344,17 @@ impl Layer for MixedContentLayer {
 /// Convenience: the default pipeline with the standard layers in the
 /// standard order. Equivalent to building it manually.
 pub fn default_pipeline(tracker_engine: TrackerEngine) -> crate::RequestPipeline {
+    default_pipeline_with_adblock_lists(tracker_engine, std::iter::empty())
+}
+
+/// Build the standard pipeline with the embedded seed rules followed by
+/// validated subscription lists. Constructing a fresh pipeline keeps updates
+/// all-or-nothing: callers can continue using the previous value until this
+/// function has completed.
+pub fn default_pipeline_with_adblock_lists<'a>(
+    tracker_engine: TrackerEngine,
+    subscription_lists: impl IntoIterator<Item = &'a str>,
+) -> crate::RequestPipeline {
     let mut pipeline = crate::RequestPipeline::empty();
     pipeline
         .add_layer(SchemeValidationLayer::new())
@@ -338,7 +369,7 @@ pub fn default_pipeline(tracker_engine: TrackerEngine) -> crate::RequestPipeline
         .add_tracker_layer(TrackerLayer::new(tracker_engine))
         .expect("fresh pipeline cannot contain duplicates");
     pipeline
-        .add_layer(AdblockLayer::builtin())
+        .add_layer(AdblockLayer::with_subscriptions(subscription_lists))
         .expect("fresh pipeline cannot contain duplicates");
     pipeline
 }
@@ -742,5 +773,70 @@ mod tests {
             false,
         ));
         assert!(matches!(decision, PipelineDecision::Block { .. }));
+    }
+
+    #[test]
+    fn subscription_pipeline_keeps_seed_rules_and_adds_external_rules() {
+        let pipeline = default_pipeline_with_adblock_lists(
+            TrackerEngine::builtin(),
+            ["[Adblock Plus 2.0]\n||subscription-only.example^\n"],
+        );
+        for host in ["ads.example", "subscription-only.example"] {
+            let decision = pipeline.evaluate(&ctx(
+                &format!("https://{host}/asset.js"),
+                Some("https://site.example"),
+                ResourceType::Script,
+                false,
+            ));
+            assert_eq!(
+                decision,
+                PipelineDecision::Block {
+                    layer: ADBLOCK_LAYER_NAME,
+                    reason: "request matches an ad-blocking rule",
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn subscription_exceptions_cannot_override_the_builtin_seed() {
+        let pipeline = default_pipeline_with_adblock_lists(
+            TrackerEngine::builtin(),
+            ["[Adblock Plus 2.0]\n@@||ads.example^$third-party\n"],
+        );
+        let decision = pipeline.evaluate(&ctx(
+            "https://ads.example/asset.js",
+            Some("https://site.example"),
+            ResourceType::Script,
+            false,
+        ));
+        assert_eq!(
+            decision,
+            PipelineDecision::Block {
+                layer: ADBLOCK_LAYER_NAME,
+                reason: "request matches an ad-blocking rule",
+            }
+        );
+    }
+
+    #[test]
+    fn subscription_badfilter_rules_cannot_disable_the_builtin_seed() {
+        let pipeline = default_pipeline_with_adblock_lists(
+            TrackerEngine::builtin(),
+            ["[Adblock Plus 2.0]\n||ads.example^$third-party,badfilter\n"],
+        );
+        let decision = pipeline.evaluate(&ctx(
+            "https://ads.example/asset.js",
+            Some("https://site.example"),
+            ResourceType::Script,
+            false,
+        ));
+        assert_eq!(
+            decision,
+            PipelineDecision::Block {
+                layer: ADBLOCK_LAYER_NAME,
+                reason: "request matches an ad-blocking rule",
+            }
+        );
     }
 }

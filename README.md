@@ -22,10 +22,11 @@ Reader view and session settings are implemented and smoke-tested at
 fail-closed local network test. System-IME and high-DPI coverage are
 still open. The download filesystem boundary is implemented and tested,
 but Servo/UI integration is not. Phase 6 search is complete with no
-provider selected by default. Phase 7 now has Brave's network adblock
-engine in the live request pipeline with a small embedded seed list;
-the toolbar reports bounded per-site blocking counts, while subscription
-updates are still open. The browser
+provider selected by default. Phase 7 is complete: Brave's network
+adblock engine is in the live request pipeline with an embedded seed
+list, optional EasyList/EasyPrivacy subscriptions can be applied on
+explicit request, and the toolbar reports bounded per-site blocking
+counts. The browser
 is not yet suitable as a daily browser (no usable downloads or persistent
 history yet).
 
@@ -58,6 +59,11 @@ history yet).
 - Session-only settings for a validated start page and normalized
   per-site tracker overrides. A repeatable startup-only override can be
   supplied with `--allow-trackers-for <host>`
+- A fixed EasyList/EasyPrivacy catalog in Settings. Subscriptions are
+  session-only and opt-in: an update starts only when the user presses
+  Apply, uses HTTPS with strict time/size/rule limits, and replaces the
+  live filter pipeline only after every selected list validates and
+  compiles. Failure leaves the previous protection active
 - Session-only search selection: disabled by default, with DuckDuckGo and
   Brave Search available only after explicit selection. Queries are sent
   only on Enter, limited to 512 characters and percent-encoded. Search
@@ -87,9 +93,11 @@ history yet).
   - Built-in tracker host list for third-party requests (blocked as empty
     responses; exact same-host first-party requests remain usable)
   - Brave's ABP-compatible network-filter engine with a small, local seed
-    list. It performs no list download or background update yet; a tracker
-    override does not bypass this later pipeline layer. The toolbar shows
-    session-only per-site tracker/ad counts without retaining request URLs
+    list and optional explicitly applied EasyList/EasyPrivacy subscriptions;
+    there is no automatic update, redirects are refused, and optional rules
+    cannot relax the independently enforced seed. A tracker override does not
+    bypass this later pipeline layer. The toolbar shows session-only per-site
+    tracker/ad counts without retaining request URLs
 - No telemetry, accounts, sync or remote configuration
 
 ## Building
